@@ -1,4 +1,5 @@
 import type {
+  AgentRunDto,
   ApprovalDto,
   MessagePart,
   SessionDto,
@@ -19,11 +20,27 @@ type UpdateSessionRuntimeStateInput = {
   status?: SessionStatus;
 };
 
+type MarkRunInput = {
+  errorText?: null | string;
+  runId: string;
+};
+
 export type LifecycleDeps = {
   appendSessionEvent(event: SessionEvent): unknown;
   getMessagePart(partId: string): MessagePart | null;
   getSession(sessionId: string): SessionDto | null;
   getWorkspaceRootPath(sessionId: string): string;
+  markRunBlocked(
+    input: MarkRunInput & { errorText: string }
+  ): AgentRunDto | null;
+  markRunCancelled(input: MarkRunInput): AgentRunDto | null;
+  markRunCompleted(input: MarkRunInput): AgentRunDto | null;
+  markRunFailed(
+    input: MarkRunInput & { errorText: string }
+  ): AgentRunDto | null;
+  markRunWaitingApproval(
+    input: MarkRunInput & { lastCheckpoint: string }
+  ): AgentRunDto | null;
   toolExecutor: Pick<ToolExecutor, 'executeApprovedPart'>;
   updateSessionRuntimeState(
     input: UpdateSessionRuntimeStateInput
@@ -31,12 +48,16 @@ export type LifecycleDeps = {
 };
 
 type StartPromptRunInput = {
+  runId: string;
+  signal: AbortSignal;
   sessionId: string;
 };
 
 type ResumeApprovalRunInput = {
   approval: ApprovalDto;
   decision: 'approved' | 'rejected';
+  runId: string;
+  signal: AbortSignal;
   toolCall: ToolCallDto;
 };
 
@@ -86,6 +107,8 @@ export class Lifecycle {
       await this.deps.toolExecutor.executeApprovedPart({
         decision: input.decision,
         part: resumeValidation.context.part,
+        runId: input.runId,
+        signal: input.signal,
         sessionId: input.approval.sessionId,
         workspaceRoot: this.deps.getWorkspaceRootPath(input.approval.sessionId)
       });
@@ -98,13 +121,15 @@ export class Lifecycle {
       });
 
       const result = await this.loop.run({
+        runId: input.runId,
+        signal: input.signal,
         sessionId: input.approval.sessionId,
         workspaceRoot: this.deps.getWorkspaceRootPath(input.approval.sessionId)
       });
 
-      return { reason: result.kind };
+      return this.handleResult(input.approval.sessionId, input.runId, result);
     } catch (error) {
-      return this.handleFailure(input.approval.sessionId, error);
+      return this.handleFailure(input.approval.sessionId, input.runId, error);
     }
   }
 
@@ -117,38 +142,184 @@ export class Lifecycle {
       }
 
       const result = await this.loop.run({
+        runId: input.runId,
+        signal: input.signal,
         sessionId: input.sessionId,
         workspaceRoot: this.deps.getWorkspaceRootPath(input.sessionId)
       });
 
-      return { reason: result.kind };
+      return this.handleResult(input.sessionId, input.runId, result);
     } catch (error) {
-      return this.handleFailure(input.sessionId, error);
+      return this.handleFailure(input.sessionId, input.runId, error);
     }
   }
 
-  private handleFailure(sessionId: string, error: unknown): LifecycleResult {
+  private handleResult(
+    sessionId: string,
+    runId: string,
+    result: RunLoopResult
+  ): LifecycleResult {
+    switch (result.kind) {
+      case 'completed': {
+        const run = this.deps.markRunCompleted({ runId });
+        const updatedSession = this.deps.updateSessionRuntimeState({
+          lastCheckpoint: null,
+          lastErrorText: null,
+          sessionId,
+          status: 'idle'
+        });
+
+        if (run) {
+          this.deps.appendSessionEvent({
+            run,
+            sessionId,
+            type: 'run.completed'
+          });
+        }
+
+        this.appendSessionUpdated(updatedSession, runId);
+        return { reason: result.kind };
+      }
+      case 'paused_for_approval': {
+        const checkpoint =
+          typeof result.checkpoint === 'string'
+            ? result.checkpoint
+            : JSON.stringify(result.checkpoint);
+        const run = this.deps.markRunWaitingApproval({
+          lastCheckpoint: checkpoint,
+          runId
+        });
+        const updatedSession = this.deps.updateSessionRuntimeState({
+          lastCheckpoint: checkpoint,
+          lastErrorText: null,
+          sessionId,
+          status: 'waiting_approval'
+        });
+
+        if (run) {
+          this.deps.appendSessionEvent({
+            checkpoint,
+            runId,
+            sessionId,
+            type: 'session.resumable'
+          });
+        }
+
+        this.appendSessionUpdated(updatedSession, runId);
+        return { reason: result.kind };
+      }
+      case 'cancelled': {
+        const run = this.deps.markRunCancelled({
+          errorText: result.reason,
+          runId
+        });
+        const updatedSession = this.deps.updateSessionRuntimeState({
+          lastCheckpoint: null,
+          lastErrorText: null,
+          sessionId,
+          status: 'idle'
+        });
+
+        if (run) {
+          this.deps.appendSessionEvent({
+            reason: result.reason,
+            run,
+            sessionId,
+            type: 'run.cancelled'
+          });
+        }
+
+        this.appendSessionUpdated(updatedSession, runId);
+        return { reason: result.kind };
+      }
+      case 'context_too_large': {
+        const run = this.deps.markRunBlocked({
+          errorText: result.error,
+          runId
+        });
+        const updatedSession = this.deps.updateSessionRuntimeState({
+          lastErrorText: result.error,
+          sessionId,
+          status: 'blocked'
+        });
+
+        if (run) {
+          this.deps.appendSessionEvent({
+            error: result.error,
+            run,
+            sessionId,
+            type: 'run.failed'
+          });
+        }
+
+        this.deps.appendSessionEvent({
+          error: result.error,
+          runId,
+          sessionId,
+          type: 'session.failed'
+        });
+        this.appendSessionUpdated(updatedSession, runId);
+        return { reason: result.kind };
+      }
+      case 'failed':
+        return this.handleFailure(sessionId, runId, new Error(result.error));
+      case 'max_steps_exceeded':
+        return this.handleFailure(
+          sessionId,
+          runId,
+          new Error('Run exceeded maximum steps.')
+        );
+    }
+  }
+
+  private handleFailure(
+    sessionId: string,
+    runId: string,
+    error: unknown
+  ): LifecycleResult {
     const errorMessage = formatError(error);
+    const run = this.deps.markRunFailed({
+      errorText: errorMessage,
+      runId
+    });
     const updatedSession = this.deps.updateSessionRuntimeState({
       lastErrorText: errorMessage,
       sessionId,
       status: 'failed'
     });
 
+    if (run) {
+      this.deps.appendSessionEvent({
+        error: errorMessage,
+        run,
+        sessionId,
+        type: 'run.failed'
+      });
+    }
+
     this.deps.appendSessionEvent({
       error: errorMessage,
+      runId,
       sessionId,
       type: 'session.failed'
     });
 
-    if (updatedSession) {
-      this.deps.appendSessionEvent({
-        sessionId: updatedSession.id,
-        type: 'session.updated',
-        updatedAt: updatedSession.updatedAt
-      });
-    }
+    this.appendSessionUpdated(updatedSession, runId);
 
     return { reason: 'failed' };
+  }
+
+  private appendSessionUpdated(
+    session: SessionDto | null,
+    runId?: string
+  ): void {
+    if (session) {
+      this.deps.appendSessionEvent({
+        runId,
+        sessionId: session.id,
+        type: 'session.updated',
+        updatedAt: session.updatedAt
+      });
+    }
   }
 }

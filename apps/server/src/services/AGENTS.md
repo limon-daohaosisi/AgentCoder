@@ -51,6 +51,8 @@ repositories -> services
 3. 更新核心状态时同步考虑是否需要追加 `SessionEvent`。
 4. 长任务执行必须经过 `SessionRunner` 或等价机制，避免同一 session 并发运行。
 5. 不要在 service 里返回 DB row；返回 DTO 或明确的 response model。
+6. `agent/` 中的 run 边界以 `AgentRunService` 为准：prompt/resume 只启动或恢复 run，run 终态由 `Lifecycle`/带 open-status 条件的 repository 更新负责，cancel service 只中断当前 open run 并幂等清理该 run 的 open message/tool/approval 状态。
+7. server 启动恢复历史 `running`/`waiting_approval` run 时，应实现为 service 层的启动恢复用例并调用 repositories/session-events；不要放在 routes、repositories 或 `packages/agent`。
 
 ## 常见错误
 

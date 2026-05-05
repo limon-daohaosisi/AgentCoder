@@ -1,28 +1,56 @@
 import { ServiceError } from '../../lib/service-error.js';
 
+type ActiveRun = {
+  controller: AbortController;
+  runId: string;
+  sessionId: string;
+  startedAt: string;
+};
+
 export class SessionRunner {
-  private readonly activeRuns = new Set<string>();
+  private readonly activeRuns = new Map<string, ActiveRun>();
 
   busy(sessionId: string) {
     return this.activeRuns.has(sessionId);
   }
 
+  cancel(sessionId: string, reason = 'Run cancelled by user') {
+    const activeRun = this.activeRuns.get(sessionId);
+
+    if (!activeRun) {
+      return false;
+    }
+
+    activeRun.controller.abort(new Error(reason));
+    return true;
+  }
+
+  getActiveRun(sessionId: string) {
+    return this.activeRuns.get(sessionId) ?? null;
+  }
+
   async ensureRunning<T>(
     sessionId: string,
-    setup: () => Promise<T>,
-    run: (ctx: T) => Promise<void>
+    setup: () => Promise<{ ctx: T; runId: string }>,
+    run: (ctx: T, signal: AbortSignal) => Promise<void>
   ): Promise<T> {
     if (this.activeRuns.has(sessionId)) {
       throw new ServiceError('Session already has an active run.', 409);
     }
 
-    this.activeRuns.add(sessionId);
-
     try {
-      const ctx = await setup();
+      const { ctx, runId } = await setup();
+      const controller = new AbortController();
+
+      this.activeRuns.set(sessionId, {
+        controller,
+        runId,
+        sessionId,
+        startedAt: new Date().toISOString()
+      });
 
       void Promise.resolve()
-        .then(() => run(ctx))
+        .then(() => run(ctx, controller.signal))
         .finally(() => {
           this.activeRuns.delete(sessionId);
         });

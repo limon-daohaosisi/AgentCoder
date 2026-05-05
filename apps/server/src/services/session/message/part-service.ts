@@ -4,15 +4,19 @@ import { ServiceError } from '../../../lib/service-error.js';
 import { messagePartRepository } from '../../../repositories/message-part-repository.js';
 import { messageRepository } from '../../../repositories/message-repository.js';
 
-function normalizePart(input: CreateMessagePartInput, index = 0): MessagePart {
+function normalizePart(
+  input: CreateMessagePartInput & { runId?: string },
+  index = 0
+): MessagePart {
   const now = new Date().toISOString();
+  const { runId: _runId, ...partInput } = input;
 
   if (!input.messageId || !input.sessionId) {
     throw new ServiceError('Message part is missing message/session ids.', 500);
   }
 
   return {
-    ...input,
+    ...partInput,
     createdAt: input.createdAt ?? now,
     id: input.id ?? randomUUID(),
     messageId: input.messageId,
@@ -23,7 +27,7 @@ function normalizePart(input: CreateMessagePartInput, index = 0): MessagePart {
 }
 
 export const messagePartService = {
-  appendPart(input: CreateMessagePartInput): MessagePart {
+  appendPart(input: CreateMessagePartInput & { runId?: string }): MessagePart {
     if (!input.messageId) {
       throw new ServiceError('Message part is missing message id.', 500);
     }
@@ -42,6 +46,7 @@ export const messagePartService = {
       id: part.id,
       messageId: part.messageId,
       order: part.order,
+      runId: input.runId ?? message.runId ?? null,
       sessionId: part.sessionId,
       type: part.type,
       updatedAt: part.updatedAt

@@ -66,7 +66,7 @@ export const sessionResumeService = {
 
   resumeSession(session: SessionDto): ResumeSessionDto {
     if (session.status !== 'waiting_approval') {
-      return buildResumeSuccess(session);
+      return buildResumeFailure(session);
     }
 
     const checkpoint = parseSessionCheckpoint(session.lastCheckpointJson);

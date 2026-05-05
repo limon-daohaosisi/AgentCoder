@@ -32,6 +32,7 @@ type CreateToolPartWithToolCallInput = {
     modelToolCallId: string;
     providerMetadata?: Record<string, unknown>;
     requiresApproval: boolean;
+    runId?: null | string;
     sessionId: string;
     startedAt?: string;
     status: ToolCallStatus;

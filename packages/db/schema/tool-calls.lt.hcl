@@ -16,6 +16,11 @@ table "tool_calls" {
     null = true
   }
 
+  column "run_id" {
+    type = text
+    null = true
+  }
+
   column "message_id" {
     type = text
     null = true
@@ -103,6 +108,12 @@ table "tool_calls" {
     on_delete   = SET_NULL
   }
 
+  foreign_key "tool_calls_run_id_fkey" {
+    columns     = [column.run_id]
+    ref_columns = [table.agent_runs.column.id]
+    on_delete   = SET_NULL
+  }
+
   foreign_key "tool_calls_message_id_fkey" {
     columns     = [column.message_id]
     ref_columns = [table.messages.column.id]
@@ -137,5 +148,9 @@ table "tool_calls" {
 
   index "idx_tool_calls_message_part_id" {
     columns = [column.message_part_id]
+  }
+
+  index "idx_tool_calls_run_status" {
+    columns = [column.run_id, column.status]
   }
 }

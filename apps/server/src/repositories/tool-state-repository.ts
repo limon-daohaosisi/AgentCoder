@@ -23,6 +23,7 @@ type CreateToolStateInput = {
     modelToolCallId: string;
     providerMetadata?: Record<string, unknown>;
     requiresApproval: boolean;
+    runId?: null | string;
     sessionId: string;
     startedAt?: string;
     status: ToolCallStatus;
@@ -78,6 +79,7 @@ function mapToolCallRow(row: ToolCallRow): ToolCallDto {
     providerMetadata: mapNullableRecord(row.providerMetadataJson),
     requiresApproval: row.requiresApproval === 1,
     result: mapNullableRecord(row.resultJson),
+    runId: mapNullableString(row.runId),
     sessionId: row.sessionId,
     status: row.status as ToolCallStatus,
     toolName: row.toolName as ToolCallDto['toolName'],
@@ -115,6 +117,7 @@ export const toolStateRepository = {
           id: input.part.id,
           messageId: input.part.messageId,
           orderIndex: input.part.order,
+          runId: input.toolCall.runId ?? null,
           sessionId: input.part.sessionId,
           type: input.part.type,
           updatedAt: input.part.updatedAt
@@ -137,6 +140,7 @@ export const toolStateRepository = {
             : null,
           requiresApproval: input.toolCall.requiresApproval ? 1 : 0,
           resultJson: null,
+          runId: input.toolCall.runId ?? null,
           sessionId: input.toolCall.sessionId,
           startedAt: input.toolCall.startedAt,
           status: input.toolCall.status,

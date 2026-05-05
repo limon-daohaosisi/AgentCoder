@@ -4,6 +4,9 @@ import * as schema from './schema.js';
 export type SessionRow = InferSelectModel<typeof schema.sessions>;
 export type NewSession = InferInsertModel<typeof schema.sessions>;
 
+export type AgentRunRow = InferSelectModel<typeof schema.agentRuns>;
+export type NewAgentRun = InferInsertModel<typeof schema.agentRuns>;
+
 export type WorkspaceRow = InferSelectModel<typeof schema.workspaces>;
 export type NewWorkspace = InferInsertModel<typeof schema.workspaces>;
 

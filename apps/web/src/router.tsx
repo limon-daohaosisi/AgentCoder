@@ -18,6 +18,7 @@ import { SessionList } from './features/sessions/session-list';
 import { TaskBoard } from './features/tasks/task-board';
 import { useSessionStream } from './hooks/use-session-stream';
 import {
+  cancelCurrentRun,
   createSession,
   createWorkspace,
   getSession,
@@ -310,6 +311,32 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
       });
     }
   });
+  const cancelCurrentRunMutation = useMutation({
+    mutationFn: () => {
+      if (!props.sessionId) {
+        throw new Error('当前还没有选中的 session');
+      }
+
+      return cancelCurrentRun(props.sessionId);
+    },
+    onSuccess: async (response) => {
+      if (!props.sessionId) {
+        return;
+      }
+
+      queryClient.setQueryData(['session', props.sessionId], response.session);
+
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['resume-session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['sessions', props.workspaceId]
+      });
+    }
+  });
 
   const workspace = workspaceListQuery.data?.find(
     (item) => item.id === props.workspaceId
@@ -377,10 +404,13 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     mergedTimeline.length > 0
       ? mergedTimeline
       : (currentSessionView?.timeline ?? []);
-  const isComposerDisabled =
-    !props.sessionId ||
-    submitMessageMutation.isPending ||
+  const canSubmitMessage =
+    currentSession?.status === 'planning' || currentSession?.status === 'idle';
+  const canCancelRun =
+    currentSession?.status === 'executing' ||
     currentSession?.status === 'waiting_approval';
+  const isComposerDisabled =
+    !props.sessionId || submitMessageMutation.isPending || !canSubmitMessage;
 
   return (
     <div className="min-h-screen px-4 py-4 md:px-6">
@@ -452,14 +482,33 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                       执行时间线
                     </h2>
                   </div>
-                  <div className="rounded-full border border-sand bg-mist px-3 py-1.5 text-sm text-slate-600">
-                    {currentSessionView.pendingApprovals
-                      ? `${currentSessionView.pendingApprovals} 个待审批动作`
-                      : '当前无待审批动作'}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="rounded-full border border-sand bg-mist px-3 py-1.5 text-sm text-slate-600">
+                      {currentSessionView.pendingApprovals
+                        ? `${currentSessionView.pendingApprovals} 个待审批动作`
+                        : '当前无待审批动作'}
+                    </div>
+                    {canCancelRun ? (
+                      <button
+                        className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={cancelCurrentRunMutation.isPending}
+                        onClick={() => cancelCurrentRunMutation.mutate()}
+                        type="button"
+                      >
+                        {cancelCurrentRunMutation.isPending
+                          ? '取消中...'
+                          : '取消当前运行'}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
                 <TimelinePanel items={timelineItems} />
+                {cancelCurrentRunMutation.isError ? (
+                  <p className="mt-4 text-sm text-red-700">
+                    {getErrorMessage(cancelCurrentRunMutation.error)}
+                  </p>
+                ) : null}
                 {submitMessageMutation.isError ? (
                   <p className="mt-4 text-sm text-red-700">
                     {getErrorMessage(submitMessageMutation.error)}

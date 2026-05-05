@@ -7,7 +7,7 @@ import type {
   MessageStatus,
   TokenUsageDto
 } from '@opencode/shared';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
@@ -34,6 +34,13 @@ export type UpdateMessageRuntimeInput = {
   providerMetadata?: null | Record<string, unknown>;
   status?: MessageStatus;
   tokenUsage?: null | TokenUsageDto;
+  updatedAt: string;
+};
+
+type CancelRunningByRunInput = {
+  errorText?: null | string;
+  finishReason: string;
+  runId: string;
   updatedAt: string;
 };
 
@@ -71,6 +78,7 @@ function mapMessageRow(row: MessageRow): MessageDto {
     parentMessageId: row.parentMessageId ?? undefined,
     providerMetadata,
     role: row.role as MessageDto['role'],
+    runId: row.runId ?? undefined,
     runtime,
     sessionId: row.sessionId,
     status: row.status as MessageStatus,
@@ -81,6 +89,27 @@ function mapMessageRow(row: MessageRow): MessageDto {
 }
 
 export const messageRepository = {
+  cancelRunningByRun(input: CancelRunningByRunInput): MessageDto[] {
+    return db
+      .update(messages)
+      .set({
+        errorText: input.errorText,
+        finishReason: input.finishReason,
+        status: 'cancelled',
+        updatedAt: input.updatedAt
+      })
+      .where(
+        and(
+          eq(messages.runId, input.runId),
+          eq(messages.role, 'assistant'),
+          eq(messages.status, 'running')
+        )
+      )
+      .returning()
+      .all()
+      .map(mapMessageRow);
+  },
+
   create(input: CreateMessageInput): MessageDto {
     const row = db
       .insert(messages)
@@ -112,6 +141,22 @@ export const messageRepository = {
       .select()
       .from(messages)
       .where(eq(messages.sessionId, sessionId))
+      .orderBy(asc(messages.createdAt))
+      .all()
+      .map(mapMessageRow);
+  },
+
+  listRunningByRun(runId: string): MessageDto[] {
+    return db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.runId, runId),
+          eq(messages.role, 'assistant'),
+          eq(messages.status, 'running')
+        )
+      )
       .orderBy(asc(messages.createdAt))
       .all()
       .map(mapMessageRow);

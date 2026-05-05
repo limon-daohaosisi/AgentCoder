@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const sessionStatusSchema = z.enum([
   'planning',
+  'idle',
   'executing',
   'waiting_approval',
   'blocked',
@@ -11,6 +12,17 @@ export const sessionStatusSchema = z.enum([
 ]);
 
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
+
+export const agentRunStatusSchema = z.enum([
+  'running',
+  'waiting_approval',
+  'completed',
+  'cancelled',
+  'failed',
+  'blocked'
+]);
+
+export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 
 export const createWorkspaceInputSchema = z.object({
   rootPath: z.string().trim().min(1)
@@ -33,3 +45,9 @@ export const submitSessionMessageInputSchema = z.object({
 export type SubmitSessionMessageInput = z.infer<
   typeof submitSessionMessageInputSchema
 >;
+
+export const cancelRunInputSchema = z.object({
+  reason: z.string().trim().min(1).optional()
+});
+
+export type CancelRunInput = z.infer<typeof cancelRunInputSchema>;

@@ -41,6 +41,15 @@ function createDeps(overrides: Partial<RunLoopDeps> = {}): RunLoopDeps {
   });
 }
 
+function createRunLoopInput(sessionId: string) {
+  return {
+    runId: 'run-test',
+    sessionId,
+    signal: new AbortController().signal,
+    workspaceRoot: environment.workspaceRoot
+  };
+}
+
 test('RunLoop rebuilds context and continues after auto tool execution', async () => {
   const session = createSessionWithUserMessage();
   const calls: ProcessTurnInput[] = [];
@@ -90,10 +99,7 @@ test('RunLoop rebuilds context and continues after auto tool execution', async (
     }
   };
   const loop = new RunLoop(processor, toolExecutor, createDeps());
-  const result = await loop.run({
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+  const result = await loop.run(createRunLoopInput(session.id));
 
   assert.deepEqual(result, { finishReason: 'stop', kind: 'completed' });
   assert.equal(calls.length, 2);
@@ -123,10 +129,7 @@ test('RunLoop does not call model when session is waiting approval', async () =>
     },
     createDeps()
   );
-  const result = await loop.run({
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+  const result = await loop.run(createRunLoopInput(session.id));
 
   assert.deepEqual(result, { kind: 'paused_for_approval' });
   assert.equal(called, false);

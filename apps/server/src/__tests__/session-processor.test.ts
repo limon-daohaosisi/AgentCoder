@@ -10,6 +10,7 @@ import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { buildSessionProcessorDeps } from '../wiring/agent.js';
 
 const {
+  agentRunService,
   environment,
   messageService,
   sessionEventService,
@@ -58,6 +59,20 @@ function createSession() {
   });
 }
 
+function createProcessTurnInput(input: {
+  request: AiSdkTurnRequest;
+  runId: string;
+  sessionId: string;
+}) {
+  return {
+    request: input.request,
+    runId: input.runId,
+    sessionId: input.sessionId,
+    signal: new AbortController().signal,
+    workspaceRoot: environment.workspaceRoot
+  };
+}
+
 beforeEach(() => {
   resetTestDatabase();
 });
@@ -68,6 +83,7 @@ afterEach(() => {
 
 test('SessionProcessor persists streamed assistant text and completes the turn', async () => {
   const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
@@ -107,11 +123,13 @@ test('SessionProcessor persists streamed assistant text and completes the turn',
         })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    request: createRequest(),
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest(),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
 
   assert.deepEqual(result, {
     finishReason: 'stop',
@@ -135,18 +153,13 @@ test('SessionProcessor persists streamed assistant text and completes the turn',
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    [
-      'message.created',
-      'message.delta',
-      'message.delta',
-      'message.completed',
-      'session.updated'
-    ]
+    ['message.created', 'message.delta', 'message.delta', 'message.completed']
   );
 });
 
 test('SessionProcessor persists auto tool calls without executing local tools', async () => {
   const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
@@ -178,20 +191,22 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
         })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    request: createRequest({
-      toolPolicies: {
-        read_file: {
-          approval: 'never',
-          enabled: true,
-          name: 'read_file',
-          source: 'builtin'
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          read_file: {
+            approval: 'never',
+            enabled: true,
+            name: 'read_file',
+            source: 'builtin'
+          }
         }
-      }
-    }),
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
 
   assert.equal(result.kind, 'tool_calls');
   assert.equal(result.toolParts.length, 1);
@@ -218,6 +233,7 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
 
 test('SessionProcessor pauses for approval-required tools and stores part checkpoint', async () => {
   const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
@@ -252,20 +268,22 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
         })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    request: createRequest({
-      toolPolicies: {
-        write_file: {
-          approval: 'required',
-          enabled: true,
-          name: 'write_file',
-          source: 'builtin'
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          write_file: {
+            approval: 'required',
+            enabled: true,
+            name: 'write_file',
+            source: 'builtin'
+          }
         }
-      }
-    }),
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
 
   assert.equal(result.kind, 'paused_for_approval');
   assert.equal(result.checkpoint.kind, 'waiting_approval');
@@ -273,27 +291,18 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
   assert.ok(result.checkpoint.partId);
   assert.equal(result.checkpoint.modelToolCallId, 'model-call-write');
   assert.ok(result.checkpoint.toolCallId);
-  assert.equal(
-    sessionService.getSession(session.id)?.status,
-    'waiting_approval'
-  );
+  assert.equal(sessionService.getSession(session.id)?.status, 'planning');
   assert.deepEqual(
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    [
-      'message.created',
-      'message.completed',
-      'tool.pending',
-      'approval.created',
-      'session.resumable',
-      'session.updated'
-    ]
+    ['message.created', 'message.completed', 'tool.pending', 'approval.created']
   );
 });
 
 test('SessionProcessor fails multiple approval-required tools instead of creating ambiguous recovery', async () => {
   const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
@@ -334,26 +343,28 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
         })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    request: createRequest({
-      toolPolicies: {
-        run_command: {
-          approval: 'required',
-          enabled: true,
-          name: 'run_command',
-          source: 'builtin'
-        },
-        write_file: {
-          approval: 'required',
-          enabled: true,
-          name: 'write_file',
-          source: 'builtin'
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          run_command: {
+            approval: 'required',
+            enabled: true,
+            name: 'run_command',
+            source: 'builtin'
+          },
+          write_file: {
+            approval: 'required',
+            enabled: true,
+            name: 'write_file',
+            source: 'builtin'
+          }
         }
-      }
-    }),
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
 
   assert.deepEqual(result, {
     error: 'Multiple approval-required tool calls are not supported.',

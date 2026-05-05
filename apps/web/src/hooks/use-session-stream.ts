@@ -5,9 +5,14 @@ import { useQueryClient } from '@tanstack/react-query';
 type StreamStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 const SESSION_EVENT_NAMES = [
+  'run.created',
+  'run.completed',
+  'run.cancelled',
+  'run.failed',
   'message.created',
   'message.delta',
   'message.completed',
+  'message.cancelled',
   'tool.pending',
   'approval.created',
   'approval.resolved',
@@ -57,10 +62,7 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
         setStatus('connected');
 
         if (isCacheRelevantEvent(envelope.event)) {
-          if (
-            envelope.event.type === 'message.created' ||
-            envelope.event.type === 'message.completed'
-          ) {
+          if (envelope.event.type.startsWith('message.')) {
             void queryClient.invalidateQueries({
               queryKey: ['messages', sessionId]
             });

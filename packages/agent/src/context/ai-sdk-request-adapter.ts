@@ -213,13 +213,24 @@ export function toAiSdkTurnRequest(input: {
   tools: ResolvedTool[];
 }): AiSdkTurnRequest {
   const model = input.context.lastUser.model;
+  const system = input.context.system.map((block) => block.text).join('\n\n');
+  const providerOptions =
+    model.providerId === 'openai'
+      ? {
+          openai: {
+            instructions: system,
+            systemMessageMode: 'remove'
+          }
+        }
+      : undefined;
 
   return {
     messages: toAiSdkMessages(input.context),
     model: input.modelFactory(model),
     modelId: model.modelId,
     providerId: model.providerId,
-    system: input.context.system.map((block) => block.text).join('\n\n'),
+    providerOptions,
+    system,
     toolExecutionMode: 'manual',
     toolPolicies: toToolPolicies(input.tools),
     tools: toAiSdkToolSet({ executionMode: 'manual', tools: input.tools })

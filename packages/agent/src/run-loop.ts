@@ -1,4 +1,4 @@
-import type { SessionDto, SessionEvent, SessionStatus } from '@opencode/shared';
+import type { SessionDto } from '@opencode/shared';
 import {
   toAiSdkTurnRequest,
   type ModelFactory
@@ -12,6 +12,8 @@ import type { ProcessorResult, SessionProcessor } from './session-processor.js';
 import type { ToolExecutor } from './tool-executor.js';
 
 export type RunLoopInput = {
+  runId: string;
+  signal: AbortSignal;
   sessionId: string;
   workspaceRoot: string;
 };
@@ -19,6 +21,7 @@ export type RunLoopInput = {
 export type RunLoopResult =
   | { finishReason: string; kind: 'completed' }
   | { checkpoint?: unknown; kind: 'paused_for_approval' }
+  | { kind: 'cancelled'; reason: string }
   | { error: string; kind: 'failed' }
   | { error: string; kind: 'context_too_large' }
   | { kind: 'max_steps_exceeded' };
@@ -26,16 +29,8 @@ export type RunLoopResult =
 const contextTooLargeError = 'context_too_large_compact_not_implemented';
 
 export type RunLoopDeps = ContextBuilderDeps & {
-  appendSessionEvent(event: SessionEvent): unknown;
   getSession(sessionId: string): SessionDto | null;
   modelFactory: ModelFactory;
-  updateSessionRuntimeState(input: {
-    currentTaskId?: null | string;
-    lastCheckpoint?: null | string;
-    lastErrorText?: null | string;
-    sessionId: string;
-    status?: SessionStatus;
-  }): SessionDto | null;
 };
 
 export class RunLoop {
@@ -56,6 +51,10 @@ export class RunLoop {
 
   async run(input: RunLoopInput): Promise<RunLoopResult> {
     for (let step = 0; step < this.maxSteps; step++) {
+      if (input.signal.aborted) {
+        return { kind: 'cancelled', reason: getAbortReason(input.signal) };
+      }
+
       const session = this.deps.getSession(input.sessionId);
 
       if (!session) {
@@ -90,26 +89,6 @@ export class RunLoop {
         this.sizeGuard.assertFits({ context, request, resolvedTools });
       } catch (error) {
         if (error instanceof Error && error.message === contextTooLargeError) {
-          const updatedSession = this.deps.updateSessionRuntimeState({
-            lastErrorText: contextTooLargeError,
-            sessionId: input.sessionId,
-            status: 'blocked'
-          });
-
-          this.deps.appendSessionEvent({
-            error: contextTooLargeError,
-            sessionId: input.sessionId,
-            type: 'session.failed'
-          });
-
-          if (updatedSession) {
-            this.deps.appendSessionEvent({
-              sessionId: updatedSession.id,
-              type: 'session.updated',
-              updatedAt: updatedSession.updatedAt
-            });
-          }
-
           return { error: contextTooLargeError, kind: 'context_too_large' };
         }
 
@@ -122,6 +101,8 @@ export class RunLoop {
 
       const result = await this.processor.processTurn({
         request,
+        runId: input.runId,
+        signal: input.signal,
         sessionId: input.sessionId,
         workspaceRoot: input.workspaceRoot
       });
@@ -146,9 +127,13 @@ export class RunLoop {
         return { checkpoint: result.checkpoint, kind: 'paused_for_approval' };
       case 'failed':
         return { error: result.error, kind: 'failed' };
+      case 'cancelled':
+        return { kind: 'cancelled', reason: result.reason };
       case 'tool_calls': {
         const toolResult = await this.toolExecutor.executePendingToolParts({
           parts: result.toolParts,
+          runId: input.runId,
+          signal: input.signal,
           sessionId: input.sessionId,
           workspaceRoot: input.workspaceRoot
         });
@@ -164,8 +149,20 @@ export class RunLoop {
           };
         }
 
+        if (toolResult.kind === 'cancelled') {
+          return { kind: 'cancelled', reason: toolResult.reason };
+        }
+
         return { error: toolResult.error, kind: 'failed' };
       }
     }
   }
+}
+
+function getAbortReason(signal: AbortSignal) {
+  return signal.reason instanceof Error
+    ? signal.reason.message
+    : typeof signal.reason === 'string'
+      ? signal.reason
+      : 'Run cancelled by user';
 }

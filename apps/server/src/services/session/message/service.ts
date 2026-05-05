@@ -27,6 +27,7 @@ type CreateMessageInput = {
   providerMetadata?: Record<string, unknown>;
   role: MessageDto['role'];
   runtime?: MessageRuntimeMetadata;
+  runId?: string;
   sessionId: string;
   status?: MessageStatus;
   summary?: boolean;
@@ -45,10 +46,11 @@ type UpdateMessageRuntimeInput = {
 };
 
 function normalizePart(
-  input: CreateMessagePartInput,
+  input: CreateMessagePartInput & { runId?: string },
   index: number
 ): MessagePart {
   const now = new Date().toISOString();
+  const { runId: _runId, ...partInput } = input;
   const base = {
     createdAt: input.createdAt ?? now,
     id: input.id ?? randomUUID(),
@@ -59,7 +61,7 @@ function normalizePart(
   };
 
   return {
-    ...input,
+    ...partInput,
     ...base
   } as MessagePart;
 }
@@ -102,6 +104,7 @@ export const messageService = {
       providerMetadata: input.providerMetadata,
       role: input.role,
       runtime: input.runtime,
+      runId: input.runId ?? null,
       sessionId: input.sessionId,
       status: input.status ?? 'completed',
       summary: input.summary,
@@ -117,6 +120,7 @@ export const messageService = {
         id: part.id,
         messageId: part.messageId,
         order: part.order,
+        runId: input.runId ?? null,
         sessionId: part.sessionId,
         type: part.type,
         updatedAt: part.updatedAt

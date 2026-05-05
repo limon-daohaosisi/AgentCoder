@@ -16,6 +16,11 @@ table "messages" {
     null = true
   }
 
+  column "run_id" {
+    type = text
+    null = true
+  }
+
   column "role" {
     type = text
     null = false
@@ -125,6 +130,12 @@ table "messages" {
     on_delete   = SET_NULL
   }
 
+  foreign_key "messages_run_id_fkey" {
+    columns     = [column.run_id]
+    ref_columns = [table.agent_runs.column.id]
+    on_delete   = SET_NULL
+  }
+
   check "messages_valid_role" {
     expr = "role IN ('user', 'assistant')"
   }
@@ -139,5 +150,9 @@ table "messages" {
 
   index "idx_messages_task_created_at" {
     columns = [column.task_id, column.created_at]
+  }
+
+  index "idx_messages_run_created_at" {
+    columns = [column.run_id, column.created_at]
   }
 }

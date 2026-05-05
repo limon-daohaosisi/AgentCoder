@@ -1,7 +1,7 @@
 import { toolCalls } from '@opencode/orm';
 import type { NewToolCall, ToolCallRow } from '@opencode/orm';
 import type { ToolCallDto, ToolCallStatus } from '@opencode/shared';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
@@ -21,6 +21,14 @@ type UpdateToolCallInput = {
   result?: null | Record<string, unknown>;
   startedAt?: null | string;
   status: ToolCallStatus;
+  updatedAt: string;
+};
+
+type FailOpenByRunInput = {
+  completedAt: string;
+  errorText: string;
+  result: Record<string, unknown>;
+  runId: string;
   updatedAt: string;
 };
 
@@ -44,6 +52,7 @@ function mapToolCallRow(row: ToolCallRow): ToolCallDto {
     providerMetadata: mapNullableRecord(row.providerMetadataJson),
     requiresApproval: row.requiresApproval === 1,
     result: mapNullableRecord(row.resultJson),
+    runId: mapNullableString(row.runId),
     sessionId: row.sessionId,
     status: row.status as ToolCallStatus,
     toolName: row.toolName as ToolCallDto['toolName'],
@@ -72,6 +81,52 @@ export const toolCallRepository = {
   getById(id: string): ToolCallDto | null {
     const row = db.select().from(toolCalls).where(eq(toolCalls.id, id)).get();
     return row ? mapToolCallRow(row) : null;
+  },
+
+  failOpenByRun(input: FailOpenByRunInput): ToolCallDto[] {
+    return db
+      .update(toolCalls)
+      .set({
+        completedAt: input.completedAt,
+        errorText: input.errorText,
+        resultJson: stringifyJsonValue(input.result),
+        status: 'failed',
+        updatedAt: input.updatedAt
+      })
+      .where(
+        and(
+          eq(toolCalls.runId, input.runId),
+          inArray(toolCalls.status, [
+            'pending',
+            'pending_approval',
+            'approved',
+            'running'
+          ])
+        )
+      )
+      .returning()
+      .all()
+      .map(mapToolCallRow);
+  },
+
+  listOpenByRun(runId: string): ToolCallDto[] {
+    return db
+      .select()
+      .from(toolCalls)
+      .where(
+        and(
+          eq(toolCalls.runId, runId),
+          inArray(toolCalls.status, [
+            'pending',
+            'pending_approval',
+            'approved',
+            'running'
+          ])
+        )
+      )
+      .orderBy(asc(toolCalls.createdAt), asc(toolCalls.id))
+      .all()
+      .map(mapToolCallRow);
   },
 
   update(input: UpdateToolCallInput): ToolCallDto | null {

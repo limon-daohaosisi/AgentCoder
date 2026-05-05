@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm/relations';
 import {
   toolCalls,
+  agentRuns,
   approvals,
   tasks,
   sessions,
@@ -11,6 +12,22 @@ import {
   messages,
   messageParts
 } from './schema.js';
+
+export const agentRunsRelations = relations(agentRuns, ({ one, many }) => ({
+  approvals: many(approvals),
+  messageParts: many(messageParts),
+  messages: many(messages),
+  sessionEvents: many(sessionEvents),
+  session: one(sessions, {
+    fields: [agentRuns.sessionId],
+    references: [sessions.id]
+  }),
+  toolCalls: many(toolCalls),
+  triggerMessage: one(messages, {
+    fields: [agentRuns.triggerMessageId],
+    references: [messages.id]
+  })
+}));
 
 export const approvalsRelations = relations(approvals, ({ one }) => ({
   toolCall: one(toolCalls, {
@@ -24,6 +41,10 @@ export const approvalsRelations = relations(approvals, ({ one }) => ({
   session: one(sessions, {
     fields: [approvals.sessionId],
     references: [sessions.id]
+  }),
+  run: one(agentRuns, {
+    fields: [approvals.runId],
+    references: [agentRuns.id]
   })
 }));
 
@@ -45,6 +66,10 @@ export const toolCallsRelations = relations(toolCalls, ({ one, many }) => ({
   session: one(sessions, {
     fields: [toolCalls.sessionId],
     references: [sessions.id]
+  }),
+  run: one(agentRuns, {
+    fields: [toolCalls.runId],
+    references: [agentRuns.id]
   })
 }));
 
@@ -74,6 +99,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
 
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({
   approvals: many(approvals),
+  agentRuns: many(agentRuns),
   artifacts: many(artifacts),
   plans: many(plans),
   sessionEvents: many(sessionEvents),
@@ -118,6 +144,10 @@ export const sessionEventsRelations = relations(sessionEvents, ({ one }) => ({
   session: one(sessions, {
     fields: [sessionEvents.sessionId],
     references: [sessions.id]
+  }),
+  run: one(agentRuns, {
+    fields: [sessionEvents.runId],
+    references: [agentRuns.id]
   })
 }));
 
@@ -134,6 +164,10 @@ export const messagesRelations = relations(messages, ({ one, many }) => ({
     fields: [messages.sessionId],
     references: [sessions.id]
   }),
+  run: one(agentRuns, {
+    fields: [messages.runId],
+    references: [agentRuns.id]
+  }),
   toolCalls: many(toolCalls),
   messageParts: many(messageParts)
 }));
@@ -149,6 +183,10 @@ export const messagePartsRelations = relations(
     session: one(sessions, {
       fields: [messageParts.sessionId],
       references: [sessions.id]
+    }),
+    run: one(agentRuns, {
+      fields: [messageParts.runId],
+      references: [agentRuns.id]
     })
   })
 );

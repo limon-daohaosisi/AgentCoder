@@ -13,6 +13,7 @@ type AppendSessionEventInput = {
   event: SessionEvent;
   headline?: null | string;
   level?: NewSessionEvent['level'];
+  runId?: null | string;
   sessionId: string;
   taskId?: null | string;
 };
@@ -58,6 +59,7 @@ export const sessionEventRepository = {
           id: `${input.sessionId}:${sequenceNo}`,
           level: input.level ?? 'info',
           payloadJson: stringifyJsonValue(input.event),
+          runId: input.runId ?? null,
           sequenceNo,
           sessionId: input.sessionId,
           taskId: input.taskId ?? null,

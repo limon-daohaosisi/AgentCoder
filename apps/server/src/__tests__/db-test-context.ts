@@ -9,8 +9,10 @@ const [
   { sqlite },
   { ServiceError },
   { buildSessionCheckpoint },
+  { agentRunService },
   { messageService },
   { messagePartService },
+  { sessionInteractionService },
   { toolStateService },
   { sessionEventService },
   { sessionService },
@@ -20,8 +22,10 @@ const [
   import('../db/client.js'),
   import('../lib/service-error.js'),
   import('@opencode/agent'),
+  import('../services/agent/run-service.js'),
   import('../services/session/message/service.js'),
   import('../services/session/message/part-service.js'),
+  import('../services/agent/interaction-service.js'),
   import('../services/agent/tool-state-service.js'),
   import('../services/session-events/event-service.js'),
   import('../services/session/service.js'),
@@ -52,6 +56,7 @@ process.once('exit', () => {
 });
 
 export const dbTestContext = {
+  agentRunService,
   app,
   buildSessionCheckpoint,
   environment,
@@ -60,6 +65,7 @@ export const dbTestContext = {
   messagePartService,
   partService,
   sessionEventService,
+  sessionInteractionService,
   sessionService,
   sqlite,
   toolStateService,

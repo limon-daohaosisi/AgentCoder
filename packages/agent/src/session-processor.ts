@@ -5,9 +5,7 @@ import type {
   MessageDto,
   MessagePart,
   SessionCheckpoint,
-  SessionDto,
   SessionEvent,
-  SessionStatus,
   TokenUsageDto,
   ToolCallDto
 } from '@opencode/shared';
@@ -27,11 +25,16 @@ type CreateApprovalInput = {
   id: string;
   kind: ApprovalDto['kind'];
   payload: Record<string, unknown>;
+  runId?: null | string;
   sessionId: string;
   status: ApprovalDto['status'];
   suggestedRuleJson: null | string;
   taskId: null | string;
   toolCallId: string;
+};
+
+type CreateMessagePartWithRunInput = CreateMessagePartInput & {
+  runId?: string;
 };
 
 type CreateMessageInput = {
@@ -40,17 +43,10 @@ type CreateMessageInput = {
   id?: string;
   model?: { modelId: string; providerId: string };
   role: MessageDto['role'];
+  runId?: string;
   sessionId: string;
   status?: MessageDto['status'];
   taskId?: string;
-};
-
-type UpdateSessionRuntimeStateInput = {
-  currentTaskId?: null | string;
-  lastCheckpoint?: null | SessionCheckpoint | string;
-  lastErrorText?: null | string;
-  sessionId: string;
-  status?: SessionStatus;
 };
 
 type UpdateMessageRuntimeInput = {
@@ -64,7 +60,7 @@ type UpdateMessageRuntimeInput = {
 };
 
 export type SessionProcessorDeps = {
-  appendMessagePart(input: CreateMessagePartInput): MessagePart;
+  appendMessagePart(input: CreateMessagePartWithRunInput): MessagePart;
   appendSessionEvent(event: SessionEvent): unknown;
   createApproval(input: CreateApprovalInput): ApprovalDto;
   createId?: () => string;
@@ -80,6 +76,7 @@ export type SessionProcessorDeps = {
       modelToolCallId: string;
       providerMetadata?: Record<string, unknown>;
       requiresApproval: boolean;
+      runId?: null | string;
       sessionId: string;
       startedAt?: string;
       status: ToolCallDto['status'];
@@ -96,9 +93,6 @@ export type SessionProcessorDeps = {
   streamModelResponse: StreamModelResponse;
   updateMessageRuntime(input: UpdateMessageRuntimeInput): MessageDto | null;
   updateMessagePart(part: MessagePart): MessagePart | null;
-  updateSessionRuntimeState(
-    input: UpdateSessionRuntimeStateInput
-  ): SessionDto | null;
   updateToolPartWithToolCall(input: {
     part: Extract<MessagePart, { type: 'tool' }>;
     toolCall: {
@@ -118,6 +112,8 @@ export type SessionProcessorDeps = {
 
 export type ProcessTurnInput = {
   request: AiSdkTurnRequest;
+  runId: string;
+  signal: AbortSignal;
   sessionId: string;
   workspaceRoot: string;
 };
@@ -130,6 +126,7 @@ export type ProcessorResult =
       toolParts: Extract<MessagePart, { type: 'tool' }>[];
     }
   | { checkpoint: SessionCheckpoint; kind: 'paused_for_approval' }
+  | { reason: string; kind: 'cancelled' }
   | { error: string; kind: 'failed' };
 
 export type InternalFinishReason =
@@ -154,6 +151,21 @@ type AssistantMessageState = {
 
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : 'Unknown runtime error.';
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' || /cancelled|aborted/u.test(error.message))
+  );
+}
+
+function getAbortReason(signal: AbortSignal) {
+  return signal.reason instanceof Error
+    ? signal.reason.message
+    : typeof signal.reason === 'string'
+      ? signal.reason
+      : 'Run cancelled by user';
 }
 
 function normalizeFinishReason(
@@ -202,6 +214,10 @@ export class SessionProcessor {
   constructor(private readonly deps: SessionProcessorDeps) {}
 
   async processTurn(input: ProcessTurnInput): Promise<ProcessorResult> {
+    if (input.signal.aborted) {
+      return { kind: 'cancelled', reason: getAbortReason(input.signal) };
+    }
+
     const state: AssistantMessageState = {
       message: null,
       nextOrder: 0,
@@ -211,7 +227,9 @@ export class SessionProcessor {
       toolInputBuffers: new Map(),
       toolParts: []
     };
-    const stream = this.deps.streamModelResponse(input.request);
+    const stream = this.deps.streamModelResponse(input.request, {
+      signal: input.signal
+    });
     let finishReason: InternalFinishReason = 'unknown';
     let providerMetadata: Record<string, unknown> | undefined;
     let tokenUsage: TokenUsageDto | undefined;
@@ -219,20 +237,18 @@ export class SessionProcessor {
 
     try {
       for await (const event of stream.fullStream) {
+        if (input.signal.aborted) {
+          return await this.cancelAssistantMessage(
+            input.sessionId,
+            state,
+            input
+          );
+        }
+
         if (event.type === 'text-delta') {
-          await this.applyTextDelta(
-            input.sessionId,
-            state,
-            event.id,
-            event.text
-          );
+          await this.applyTextDelta(input, state, event.id, event.text);
         } else if (event.type === 'reasoning-delta') {
-          await this.applyReasoningDelta(
-            input.sessionId,
-            state,
-            event.id,
-            event.text
-          );
+          await this.applyReasoningDelta(input, state, event.id, event.text);
         } else if (event.type === 'tool-input-delta') {
           state.toolInputBuffers.set(
             event.id,
@@ -263,6 +279,10 @@ export class SessionProcessor {
         }
       }
     } catch (error) {
+      if (input.signal.aborted || isAbortError(error)) {
+        return await this.cancelAssistantMessage(input.sessionId, state, input);
+      }
+
       return await this.failAssistantMessage(input.sessionId, state, error);
     }
 
@@ -277,18 +297,13 @@ export class SessionProcessor {
       });
       this.deps.appendSessionEvent({
         messageId: state.message.id,
+        runId: input.runId,
         sessionId: input.sessionId,
         type: 'message.completed'
       });
     }
 
     if (state.toolParts.length === 0) {
-      this.updateSession(input.sessionId, {
-        lastCheckpoint: buildSessionCheckpoint({ kind: 'executing_task' }),
-        lastErrorText: null,
-        status: 'executing'
-      });
-
       return {
         finishReason,
         kind: 'completed'
@@ -339,19 +354,24 @@ export class SessionProcessor {
   }
 
   private async applyTextDelta(
-    sessionId: string,
+    input: Pick<ProcessTurnInput, 'runId' | 'sessionId'>,
     state: AssistantMessageState,
     streamPartId: string,
     delta: string
   ) {
-    const message = await this.ensureAssistantMessage(sessionId, state);
+    const message = await this.ensureAssistantMessage(
+      input.sessionId,
+      input.runId,
+      state
+    );
     const existing = state.textParts.get(streamPartId);
 
     if (!existing) {
       const part = this.deps.appendMessagePart({
         messageId: message.id,
         order: state.nextOrder++,
-        sessionId,
+        runId: input.runId,
+        sessionId: input.sessionId,
         text: delta,
         type: 'text'
       }) as Extract<MessagePart, { type: 'text' }>;
@@ -371,25 +391,31 @@ export class SessionProcessor {
     this.deps.appendSessionEvent({
       delta,
       messageId: message.id,
-      sessionId,
+      runId: input.runId,
+      sessionId: input.sessionId,
       type: 'message.delta'
     });
   }
 
   private async applyReasoningDelta(
-    sessionId: string,
+    input: Pick<ProcessTurnInput, 'runId' | 'sessionId'>,
     state: AssistantMessageState,
     streamPartId: string,
     delta: string
   ) {
-    const message = await this.ensureAssistantMessage(sessionId, state);
+    const message = await this.ensureAssistantMessage(
+      input.sessionId,
+      input.runId,
+      state
+    );
     const existing = state.reasoningParts.get(streamPartId);
 
     if (!existing) {
       const part = this.deps.appendMessagePart({
         messageId: message.id,
         order: state.nextOrder++,
-        sessionId,
+        runId: input.runId,
+        sessionId: input.sessionId,
         text: delta,
         type: 'reasoning'
       }) as Extract<MessagePart, { type: 'reasoning' }>;
@@ -436,7 +462,11 @@ export class SessionProcessor {
       };
     }
 
-    const message = await this.ensureAssistantMessage(input.sessionId, state);
+    const message = await this.ensureAssistantMessage(
+      input.sessionId,
+      input.runId,
+      state
+    );
     const now = this.now();
     const toolCallId = this.createId();
     const partId = this.createId();
@@ -475,6 +505,7 @@ export class SessionProcessor {
             | Record<string, unknown>
             | undefined,
           requiresApproval: policy.approval === 'required',
+          runId: input.runId,
           sessionId: input.sessionId,
           status:
             policy.approval === 'required' ? 'pending_approval' : 'pending',
@@ -515,6 +546,7 @@ export class SessionProcessor {
       id: this.createId(),
       kind: input.part.toolName as ApprovalDto['kind'],
       payload: approvalPayload.payload,
+      runId: input.input.runId,
       sessionId: input.input.sessionId,
       status: 'pending',
       suggestedRuleJson: null,
@@ -532,35 +564,17 @@ export class SessionProcessor {
 
     this.deps.appendSessionEvent({
       approval,
+      runId: input.input.runId,
       sessionId: input.input.sessionId,
       toolCall: input.toolCall,
       type: 'tool.pending'
     });
     this.deps.appendSessionEvent({
       approval,
+      runId: input.input.runId,
       sessionId: input.input.sessionId,
       type: 'approval.created'
     });
-
-    const updatedSession = this.deps.updateSessionRuntimeState({
-      lastCheckpoint: checkpoint,
-      sessionId: input.input.sessionId,
-      status: 'waiting_approval'
-    });
-
-    this.deps.appendSessionEvent({
-      checkpoint,
-      sessionId: input.input.sessionId,
-      type: 'session.resumable'
-    });
-
-    if (updatedSession) {
-      this.deps.appendSessionEvent({
-        sessionId: updatedSession.id,
-        type: 'session.updated',
-        updatedAt: updatedSession.updatedAt
-      });
-    }
 
     return checkpoint;
   }
@@ -569,7 +583,8 @@ export class SessionProcessor {
     sessionId: string,
     state: AssistantMessageState,
     parts: Extract<MessagePart, { type: 'tool' }>[],
-    errorText: string
+    errorText: string,
+    runId?: string
   ) {
     const completedAt = this.now();
     const payload = { error: errorText, ok: false };
@@ -600,6 +615,7 @@ export class SessionProcessor {
       });
       this.deps.appendSessionEvent({
         error: errorText,
+        runId,
         sessionId,
         toolCallId: part.toolCallId,
         type: 'tool.failed'
@@ -618,6 +634,7 @@ export class SessionProcessor {
 
   private async ensureAssistantMessage(
     sessionId: string,
+    runId: string,
     state: AssistantMessageState
   ) {
     if (state.message) {
@@ -627,6 +644,7 @@ export class SessionProcessor {
     const message = this.deps.createMessage({
       content: [],
       role: 'assistant',
+      runId,
       sessionId,
       status: 'running'
     });
@@ -662,6 +680,41 @@ export class SessionProcessor {
     };
   }
 
+  private async cancelAssistantMessage(
+    sessionId: string,
+    state: AssistantMessageState,
+    input: Pick<ProcessTurnInput, 'runId' | 'signal'>
+  ): Promise<ProcessorResult> {
+    const reason = getAbortReason(input.signal);
+
+    if (state.message) {
+      this.deps.updateMessageRuntime({
+        errorText: null,
+        finishReason: 'cancelled',
+        id: state.message.id,
+        status: 'cancelled'
+      });
+      this.deps.appendSessionEvent({
+        messageId: state.message.id,
+        runId: input.runId,
+        sessionId,
+        type: 'message.cancelled'
+      });
+    }
+
+    if (state.toolParts.length > 0) {
+      this.failToolParts(
+        sessionId,
+        state,
+        state.toolParts,
+        reason,
+        input.runId
+      );
+    }
+
+    return { kind: 'cancelled', reason };
+  }
+
   private createId() {
     return this.deps.createId?.() ?? randomUUID();
   }
@@ -680,23 +733,5 @@ export class SessionProcessor {
       rawInput,
       workspaceRoot
     );
-  }
-
-  private updateSession(
-    sessionId: string,
-    state: Omit<UpdateSessionRuntimeStateInput, 'sessionId'>
-  ) {
-    const updatedSession = this.deps.updateSessionRuntimeState({
-      ...state,
-      sessionId
-    });
-
-    if (updatedSession) {
-      this.deps.appendSessionEvent({
-        sessionId: updatedSession.id,
-        type: 'session.updated',
-        updatedAt: updatedSession.updatedAt
-      });
-    }
   }
 }

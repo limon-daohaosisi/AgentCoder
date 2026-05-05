@@ -16,6 +16,7 @@ import { messageService } from '../services/session/message/service.js';
 import { messagePartService } from '../services/session/message/part-service.js';
 import { sessionEventService } from '../services/session-events/event-service.js';
 import { sessionService } from '../services/session/service.js';
+import { agentRunService } from '../services/agent/run-service.js';
 import { toolStateService } from '../services/agent/tool-state-service.js';
 
 export function buildSessionProcessorDeps(
@@ -31,8 +32,6 @@ export function buildSessionProcessorDeps(
     streamModelResponse,
     updateMessagePart: (part) => messagePartService.updatePart(part),
     updateMessageRuntime: (input) => messageService.updateMessageRuntime(input),
-    updateSessionRuntimeState: (input) =>
-      sessionService.updateSessionRuntimeState(input),
     updateToolPartWithToolCall: (input) =>
       toolStateService.updateToolPartWithToolCall(input),
     ...overrides
@@ -74,6 +73,15 @@ export function buildLifecycleDeps(
     getMessagePart: (partId) => messagePartService.getPart(partId),
     getSession: (sessionId) => sessionService.getSession(sessionId),
     getWorkspaceRootPath,
+    markRunBlocked: (input) => agentRunService.markBlocked(input),
+    markRunCancelled: (input) => agentRunService.markCancelled(input),
+    markRunCompleted: (input) => agentRunService.markCompleted(input),
+    markRunFailed: (input) => agentRunService.markFailed(input),
+    markRunWaitingApproval: (input) =>
+      agentRunService.markWaitingApproval({
+        checkpoint: input.lastCheckpoint,
+        runId: input.runId
+      }),
     toolExecutor,
     updateSessionRuntimeState: (input) =>
       sessionService.updateSessionRuntimeState(input),
@@ -85,7 +93,6 @@ export function buildRunLoopDeps(
   overrides: Partial<RunLoopDeps> = {}
 ): RunLoopDeps {
   return {
-    appendSessionEvent: (event) => sessionEventService.append(event),
     getSession: (sessionId) => sessionService.getSession(sessionId),
     listMessages: (sessionId) => messageService.listMessages(sessionId),
     modelFactory: createLanguageModel,
@@ -107,8 +114,6 @@ export function buildRunLoopDeps(
         }
       }).part;
     },
-    updateSessionRuntimeState: (input) =>
-      sessionService.updateSessionRuntimeState(input),
     ...overrides
   };
 }

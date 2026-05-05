@@ -48,3 +48,4 @@ export { ContextSizeGuard } from './context/size-guard.js';
 export { resolveTools } from './context/tool-registry.js';
 export type * from './context/schema.js';
 export { readFileTool } from './tools/index.js';
+export { runCommandTool } from './tools/index.js';

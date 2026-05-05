@@ -19,6 +19,13 @@ type UpdateMessagePartInput = {
   updatedAt: string;
 };
 
+type InterruptOpenToolPartsByRunInput = {
+  completedAt: string;
+  errorText: string;
+  payload: Record<string, unknown>;
+  runId: string;
+};
+
 function mapMessagePartRow(row: MessagePartRow): MessagePart {
   return parseJsonValue<MessagePart>(row.dataJson, {
     createdAt: row.createdAt,
@@ -74,6 +81,58 @@ export const messagePartRepository = {
       .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
       .all()
       .map(mapMessagePartRow);
+  },
+
+  listOpenToolPartsByRun(
+    runId: string
+  ): Extract<MessagePart, { type: 'tool' }>[] {
+    return db
+      .select()
+      .from(messageParts)
+      .where(and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool')))
+      .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
+      .all()
+      .map(mapMessagePartRow)
+      .filter(
+        (part): part is Extract<MessagePart, { type: 'tool' }> =>
+          part.type === 'tool' &&
+          (part.state.status === 'pending' || part.state.status === 'running')
+      );
+  },
+
+  interruptOpenToolPartsByRun(
+    input: InterruptOpenToolPartsByRunInput
+  ): Extract<MessagePart, { type: 'tool' }>[] {
+    const openParts = this.listOpenToolPartsByRun(input.runId);
+    const interruptedParts: Extract<MessagePart, { type: 'tool' }>[] = [];
+
+    for (const part of openParts) {
+      const interruptedPart: Extract<MessagePart, { type: 'tool' }> = {
+        ...part,
+        state: {
+          completedAt: input.completedAt,
+          errorText: input.errorText,
+          input: part.state.input,
+          payload: input.payload,
+          reason: 'interrupted',
+          startedAt:
+            part.state.status === 'running' ? part.state.startedAt : undefined,
+          status: 'error'
+        },
+        updatedAt: input.completedAt
+      };
+      const updatedPart = this.update({
+        data: interruptedPart,
+        id: interruptedPart.id,
+        updatedAt: input.completedAt
+      });
+
+      if (updatedPart?.type === 'tool') {
+        interruptedParts.push(updatedPart);
+      }
+    }
+
+    return interruptedParts;
   },
 
   listBySessionMessage(sessionId: string, messageId: string): MessagePart[] {

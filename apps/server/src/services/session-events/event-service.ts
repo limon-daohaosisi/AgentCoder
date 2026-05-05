@@ -9,6 +9,13 @@ import { sessionEventRepository } from '../../repositories/session-event-reposit
 
 function deriveCreatedAt(event: SessionEvent) {
   switch (event.type) {
+    case 'run.created':
+      return event.run.createdAt;
+    case 'run.completed':
+    case 'run.failed':
+      return event.run.endedAt ?? event.run.updatedAt;
+    case 'run.cancelled':
+      return event.run.cancelledAt ?? event.run.endedAt ?? event.run.updatedAt;
     case 'message.created':
       return event.message.createdAt;
     case 'approval.created':
@@ -46,11 +53,44 @@ function deriveCreatedAt(event: SessionEvent) {
 
 function deriveMetadata(event: SessionEvent) {
   switch (event.type) {
+    case 'run.created':
+      return {
+        entityId: event.run.id,
+        entityType: 'agent_run',
+        headline: 'Run created'
+      };
+    case 'run.completed':
+      return {
+        entityId: event.run.id,
+        entityType: 'agent_run',
+        headline: 'Run completed'
+      };
+    case 'run.cancelled':
+      return {
+        detailText: event.reason,
+        entityId: event.run.id,
+        entityType: 'agent_run',
+        headline: 'Run cancelled'
+      };
+    case 'run.failed':
+      return {
+        detailText: event.error,
+        entityId: event.run.id,
+        entityType: 'agent_run',
+        headline: 'Run failed',
+        level: 'error' as const
+      };
     case 'message.created':
       return {
         entityId: event.message.id,
         entityType: 'message',
         headline: `${event.message.role} message created`
+      };
+    case 'message.cancelled':
+      return {
+        entityId: event.messageId,
+        entityType: 'message',
+        headline: 'Message cancelled'
       };
     case 'tool.pending':
       return {
@@ -120,12 +160,43 @@ function deriveMetadata(event: SessionEvent) {
   }
 }
 
+function deriveRunId(event: SessionEvent) {
+  if ('runId' in event) {
+    return event.runId;
+  }
+
+  if (
+    event.type === 'run.created' ||
+    event.type === 'run.completed' ||
+    event.type === 'run.cancelled' ||
+    event.type === 'run.failed'
+  ) {
+    return event.run.id;
+  }
+
+  if (event.type === 'message.created') {
+    return event.message.runId;
+  }
+
+  if (event.type === 'tool.pending' || event.type === 'tool.completed') {
+    return event.toolCall.runId;
+  }
+
+  if (event.type === 'approval.created') {
+    return event.approval.runId;
+  }
+
+  return undefined;
+}
+
 export const sessionEventService = {
   append(event: SessionEvent): SessionEventEnvelope {
+    const runId = deriveRunId(event);
     const envelope = sessionEventRepository.append({
       createdAt: deriveCreatedAt(event),
       event,
       ...deriveMetadata(event),
+      runId,
       sessionId: event.sessionId
     });
 

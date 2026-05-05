@@ -1,4 +1,4 @@
-import type { SessionStatus } from './contracts.js';
+import type { AgentRunStatus, SessionStatus } from './contracts.js';
 
 export type ToolCallStatus =
   | 'pending'
@@ -250,6 +250,20 @@ export type ResumeSessionDto = {
   session?: SessionDto;
 };
 
+export type AgentRunDto = {
+  cancelledAt?: string;
+  createdAt: string;
+  endedAt?: string;
+  errorText?: string;
+  id: string;
+  lastCheckpointJson?: string;
+  sessionId: string;
+  startedAt: string;
+  status: AgentRunStatus;
+  triggerMessageId?: string;
+  updatedAt: string;
+};
+
 export type MessageDto = {
   agentName?: string;
   compactedByMessageId?: string;
@@ -267,6 +281,7 @@ export type MessageDto = {
   parentMessageId?: string;
   providerMetadata?: Record<string, unknown>;
   role: MessageRole;
+  runId?: string;
   runtime?: MessageRuntimeMetadata;
   sessionId: string;
   status: MessageStatus;
@@ -278,6 +293,14 @@ export type MessageDto = {
 export type SubmitSessionMessageResponse = {
   accepted: true;
   message: MessageDto;
+  run: AgentRunDto;
+};
+
+export type CancelRunResponse = {
+  cancelled: boolean;
+  reason: 'active_run_cancelled' | 'approval_cancelled' | 'no_active_run';
+  run?: AgentRunDto;
+  session: SessionDto;
 };
 
 export type ToolCallDto = {
@@ -291,6 +314,7 @@ export type ToolCallDto = {
   providerMetadata?: Record<string, unknown>;
   requiresApproval?: boolean;
   result?: Record<string, unknown>;
+  runId?: string;
   sessionId: string;
   status: ToolCallStatus;
   toolName: string;
@@ -300,10 +324,16 @@ export type ToolCallDto = {
 export type ApprovalDto = {
   createdAt: string;
   decidedAt?: string;
+  decidedBy?: string;
+  decisionReasonText?: string;
+  decisionScope?: 'once' | 'session_rule';
   id: string;
   kind: 'write_file' | 'run_command';
   payload: Record<string, unknown>;
+  runId?: string;
   sessionId: string;
   status: ApprovalStatus;
+  suggestedRuleJson?: string;
+  taskId?: string;
   toolCallId: string;
 };

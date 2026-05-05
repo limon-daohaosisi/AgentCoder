@@ -14,6 +14,7 @@ import { sessionRunner } from './runner.js';
 import { sessionService } from '../session/service.js';
 import { sessionResumeService } from '../session/resume-service.js';
 import { sessionEventService } from '../session-events/event-service.js';
+import { agentRunService } from './run-service.js';
 
 type SubmitUserMessageInput = {
   content: string;
@@ -35,9 +36,9 @@ export class SessionInteractionService {
       throw new ServiceError(`Session not found: ${input.sessionId}`, 404);
     }
 
-    if (session.status === 'waiting_approval') {
+    if (session.status !== 'planning' && session.status !== 'idle') {
       throw new ServiceError(
-        'Session is waiting for approval before it can continue.',
+        'Session cannot accept a new prompt in its current state.',
         409
       );
     }
@@ -45,13 +46,27 @@ export class SessionInteractionService {
     const response = await this.runner.ensureRunning(
       input.sessionId,
       async () => {
+        const run = agentRunService.createRun({ sessionId: input.sessionId });
         const normalized = normalizePrompt({
           content: input.content,
           sessionId: input.sessionId
         });
         const message = messageService.createMessage({
           ...normalized.message,
-          content: normalized.parts
+          content: normalized.parts,
+          runId: run.id
+        });
+
+        const triggeredRun =
+          agentRunService.setTriggerMessage({
+            runId: run.id,
+            triggerMessageId: message.id
+          }) ?? run;
+
+        sessionEventService.append({
+          run: triggeredRun,
+          sessionId: input.sessionId,
+          type: 'run.created'
         });
 
         sessionEventService.append({
@@ -69,18 +84,25 @@ export class SessionInteractionService {
         if (updatedSession) {
           sessionEventService.append({
             sessionId: updatedSession.id,
+            runId: run.id,
             type: 'session.updated',
             updatedAt: updatedSession.updatedAt
           });
         }
 
         return {
-          accepted: true as const,
-          message
+          ctx: {
+            accepted: true as const,
+            message,
+            run: triggeredRun
+          },
+          runId: triggeredRun.id
         };
       },
-      async () => {
+      async (ctx, signal) => {
         await this.runtimeLifecycle.startPromptRun({
+          runId: ctx.run.id,
+          signal,
           sessionId: input.sessionId
         });
       }
@@ -92,7 +114,7 @@ export class SessionInteractionService {
   async resolveApproval(input: {
     approvalId: string;
     decision: 'approved' | 'rejected';
-  }): Promise<{ approval: ApprovalDto; toolCall: ToolCallDto }> {
+  }): Promise<{ approval: ApprovalDto; runId: string; toolCall: ToolCallDto }> {
     const approval = approvalRepository.getById(input.approvalId);
 
     if (!approval) {
@@ -112,12 +134,24 @@ export class SessionInteractionService {
       );
     }
 
+    const runId = approval.runId ?? toolCall.runId;
+
+    if (!runId) {
+      throw new ServiceError('Approval is missing run id.', 409);
+    }
+
     sessionResumeService.assertApprovalResumeReady({ approval, toolCall });
 
     const response = await this.runner.ensureRunning(
       approval.sessionId,
       async () => {
         const now = new Date().toISOString();
+        const runningRun = agentRunService.markRunning({ runId });
+
+        if (!runningRun) {
+          throw new ServiceError('Run is no longer waiting for approval.', 409);
+        }
+
         const updatedApproval = approvalRepository.updateDecision({
           decidedAt: now,
           id: approval.id,
@@ -129,22 +163,45 @@ export class SessionInteractionService {
           throw new ServiceError('Failed to persist approval decision.', 500);
         }
 
+        const updatedSession = sessionService.updateSessionRuntimeState({
+          lastCheckpoint: null,
+          lastErrorText: null,
+          sessionId: approval.sessionId,
+          status: 'executing'
+        });
+
         sessionEventService.append({
           approvalId: updatedApproval.id,
           decision: input.decision,
+          runId,
           sessionId: approval.sessionId,
           type: 'approval.resolved'
         });
 
+        if (updatedSession) {
+          sessionEventService.append({
+            runId,
+            sessionId: approval.sessionId,
+            type: 'session.updated',
+            updatedAt: updatedSession.updatedAt
+          });
+        }
+
         return {
-          approval: updatedApproval,
-          toolCall: updatedToolCall
+          ctx: {
+            approval: updatedApproval,
+            runId,
+            toolCall: updatedToolCall
+          },
+          runId
         };
       },
-      async (ctx) => {
+      async (ctx, signal) => {
         await this.runtimeLifecycle.resumeApprovalRun({
           approval,
           decision: input.decision,
+          runId: ctx.runId,
+          signal,
           toolCall: ctx.toolCall
         });
       }

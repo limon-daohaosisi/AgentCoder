@@ -1,5 +1,6 @@
 import { streamSSE } from 'hono/streaming';
 import { sessionInteractionService } from '../../services/agent/interaction-service.js';
+import { agentRunService } from '../../services/agent/run-service.js';
 import { parseLastEventId, writeEnvelope } from '../../lib/sse.js';
 import { sessionStreamHub } from '../../lib/session-stream-hub.js';
 import { appFactory } from '../../lib/factory.js';
@@ -54,6 +55,30 @@ export const submitMessage = appFactory.createHandlers(
       });
 
       return c.json({ data: response }, 202);
+    } catch (error) {
+      if (isServiceError(error)) {
+        return c.json({ error: error.message }, error.status);
+      }
+
+      throw error;
+    }
+  }
+);
+
+export const cancelCurrentRun = appFactory.createHandlers(
+  createValidator.param(AgentSchemas.cancelCurrentRun.param),
+  createValidator.json(AgentSchemas.cancelCurrentRun.json),
+  async (c) => {
+    const { sessionId } = c.req.valid('param');
+    const payload = c.req.valid('json');
+
+    try {
+      const response = agentRunService.cancelCurrentRun({
+        reason: payload.reason,
+        sessionId
+      });
+
+      return c.json({ data: response }, 200);
     } catch (error) {
       if (isServiceError(error)) {
         return c.json({ error: error.message }, error.status);

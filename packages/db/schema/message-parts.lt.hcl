@@ -16,6 +16,11 @@ table "message_parts" {
     null = false
   }
 
+  column "run_id" {
+    type = text
+    null = true
+  }
+
   column "type" {
     type = text
     null = false
@@ -57,11 +62,21 @@ table "message_parts" {
     on_delete   = CASCADE
   }
 
+  foreign_key "message_parts_run_id_fkey" {
+    columns     = [column.run_id]
+    ref_columns = [table.agent_runs.column.id]
+    on_delete   = SET_NULL
+  }
+
   index "idx_message_parts_message_order" {
     columns = [column.message_id, column.order_index, column.id]
   }
 
   index "idx_message_parts_session_created" {
     columns = [column.session_id, column.created_at, column.id]
+  }
+
+  index "idx_message_parts_run_order" {
+    columns = [column.run_id, column.order_index]
   }
 }

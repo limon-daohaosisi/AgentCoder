@@ -10,6 +10,42 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
+export const agentRuns = sqliteTable(
+  'agent_runs',
+  {
+    id: text().primaryKey().notNull(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    triggerMessageId: text('trigger_message_id').references(
+      (): AnySQLiteColumn => messages.id,
+      {
+        onDelete: 'set null'
+      }
+    ),
+    status: text().notNull(),
+    startedAt: text('started_at').notNull(),
+    endedAt: text('ended_at'),
+    cancelledAt: text('cancelled_at'),
+    errorText: text('error_text'),
+    lastCheckpointJson: text('last_checkpoint_json'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => [
+    index('idx_agent_runs_session_created_at').on(
+      table.sessionId,
+      table.createdAt
+    ),
+    index('idx_agent_runs_session_status').on(table.sessionId, table.status),
+    index('idx_agent_runs_trigger_message_id').on(table.triggerMessageId),
+    check(
+      'agent_runs_valid_status',
+      sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked')`
+    )
+  ]
+);
+
 export const approvals = sqliteTable(
   'approvals',
   {
@@ -18,6 +54,9 @@ export const approvals = sqliteTable(
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
     taskId: text('task_id').references(() => tasks.id, {
+      onDelete: 'set null'
+    }),
+    runId: text('run_id').references((): AnySQLiteColumn => agentRuns.id, {
       onDelete: 'set null'
     }),
     toolCallId: text('tool_call_id')
@@ -35,6 +74,7 @@ export const approvals = sqliteTable(
   },
   (table) => [
     index('idx_approvals_tool_call_id').on(table.toolCallId),
+    index('idx_approvals_run_status').on(table.runId, table.status),
     index('idx_approvals_session_status_created_at').on(
       table.sessionId,
       table.status,
@@ -61,7 +101,7 @@ export const approvals = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -127,7 +167,7 @@ export const artifacts = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -188,7 +228,7 @@ export const plans = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -221,6 +261,9 @@ export const sessionEvents = sqliteTable(
     taskId: text('task_id').references(() => tasks.id, {
       onDelete: 'set null'
     }),
+    runId: text('run_id').references(() => agentRuns.id, {
+      onDelete: 'set null'
+    }),
     sequenceNo: integer('sequence_no').notNull(),
     type: text().notNull(),
     level: text().default('info').notNull(),
@@ -236,6 +279,7 @@ export const sessionEvents = sqliteTable(
       table.taskId,
       table.sequenceNo
     ),
+    index('idx_session_events_run_sequence').on(table.runId, table.sequenceNo),
     index('idx_session_events_session_sequence').on(
       table.sessionId,
       table.sequenceNo
@@ -265,7 +309,7 @@ export const sessionEvents = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -333,7 +377,7 @@ export const sessions = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -410,7 +454,7 @@ export const tasks = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -467,7 +511,7 @@ export const workspaces = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -500,6 +544,9 @@ export const messages = sqliteTable(
     taskId: text('task_id').references(() => tasks.id, {
       onDelete: 'set null'
     }),
+    runId: text('run_id').references(() => agentRuns.id, {
+      onDelete: 'set null'
+    }),
     role: text().notNull(),
     kind: text().default('message').notNull(),
     parentMessageId: text('parent_message_id'),
@@ -521,6 +568,7 @@ export const messages = sqliteTable(
   },
   (table) => [
     index('idx_messages_task_created_at').on(table.taskId, table.createdAt),
+    index('idx_messages_run_created_at').on(table.runId, table.createdAt),
     index('idx_messages_session_created_at').on(
       table.sessionId,
       table.createdAt
@@ -546,7 +594,7 @@ export const messages = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -579,6 +627,9 @@ export const toolCalls = sqliteTable(
     taskId: text('task_id').references(() => tasks.id, {
       onDelete: 'set null'
     }),
+    runId: text('run_id').references(() => agentRuns.id, {
+      onDelete: 'set null'
+    }),
     messageId: text('message_id').references(() => messages.id, {
       onDelete: 'set null'
     }),
@@ -600,6 +651,7 @@ export const toolCalls = sqliteTable(
   },
   (table) => [
     index('idx_tool_calls_message_part_id').on(table.messagePartId),
+    index('idx_tool_calls_run_status').on(table.runId, table.status),
     index('idx_tool_calls_task_status').on(table.taskId, table.status),
     index('idx_tool_calls_session_created_at').on(
       table.sessionId,
@@ -626,7 +678,7 @@ export const toolCalls = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',
@@ -659,6 +711,9 @@ export const messageParts = sqliteTable(
     messageId: text('message_id')
       .notNull()
       .references(() => messages.id, { onDelete: 'cascade' }),
+    runId: text('run_id').references(() => agentRuns.id, {
+      onDelete: 'set null'
+    }),
     type: text().notNull(),
     orderIndex: integer('order_index').notNull(),
     dataJson: text('data_json').notNull(),
@@ -671,6 +726,7 @@ export const messageParts = sqliteTable(
       table.createdAt,
       table.id
     ),
+    index('idx_message_parts_run_order').on(table.runId, table.orderIndex),
     index('idx_message_parts_message_order').on(
       table.messageId,
       table.orderIndex,
@@ -697,7 +753,7 @@ export const messageParts = sqliteTable(
     ),
     check(
       'sessions_check_8',
-      sql`status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived'`
     ),
     check(
       'tasks_check_9',

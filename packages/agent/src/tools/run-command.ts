@@ -39,9 +39,14 @@ export const runCommandToolDefinition: ToolDefinition = {
 
 export async function runCommandTool(
   input: RunCommandToolInput,
-  workspaceRoot: string
+  workspaceRoot: string,
+  options: { signal?: AbortSignal } = {}
 ) {
   assertSafeCommand(input.command);
+
+  if (options.signal?.aborted) {
+    throw new Error('Run cancelled by user');
+  }
 
   const timeoutMs = input.timeoutMs ?? 15_000;
 
@@ -52,17 +57,59 @@ export async function runCommandTool(
   }>((resolve, reject) => {
     const child = spawn(input.command, {
       cwd: workspaceRoot,
+      detached: process.platform !== 'win32',
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    function killChild(signal: NodeJS.Signals) {
+      if (process.platform !== 'win32' && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // Fallback to killing only the shell process if the process group is gone.
+        }
+      }
+
+      child.kill(signal);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abortHandler);
+    }
+
+    function rejectOnce(error: Error) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function abortHandler() {
+      killChild('SIGTERM');
+      setTimeout(() => {
+        if (!settled) {
+          killChild('SIGKILL');
+        }
+      }, 1_000).unref();
+      rejectOnce(new Error('Run cancelled by user'));
+    }
 
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error(`Command timed out after ${timeoutMs}ms`));
+      killChild('SIGTERM');
+      rejectOnce(new Error(`Command timed out after ${timeoutMs}ms`));
     }, timeoutMs);
+
+    options.signal?.addEventListener('abort', abortHandler, { once: true });
 
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk);
@@ -73,7 +120,12 @@ export async function runCommandTool(
     });
 
     child.on('exit', (exitCode) => {
-      clearTimeout(timer);
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
       if (exitCode && exitCode !== 0) {
         reject(new Error(`Command exited with code ${exitCode}: ${stderr}`));
         return;
@@ -83,8 +135,7 @@ export async function runCommandTool(
     });
 
     child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
+      rejectOnce(error);
     });
   });
 }

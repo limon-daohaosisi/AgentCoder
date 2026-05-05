@@ -187,6 +187,86 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
 
         break;
       }
+      case 'message.cancelled': {
+        const assistantItem = assistantItems.get(envelope.event.messageId);
+
+        if (assistantItem) {
+          assistantItem.description ||= '本轮回复已取消';
+          assistantItem.status = 'warning';
+          assistantItem.title = 'Assistant 响应已取消';
+        } else {
+          items.push(
+            createTimelineEntry({
+              description: '本轮回复已取消',
+              id: envelope.event.messageId,
+              label: 'Assistant',
+              status: 'warning',
+              sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+              time,
+              title: 'Assistant 响应已取消',
+              type: 'message'
+            })
+          );
+        }
+
+        break;
+      }
+      case 'run.created':
+        items.push(
+          createTimelineEntry({
+            description: `Run ${envelope.event.run.id} 已开始`,
+            id: envelope.event.run.id,
+            label: 'Run',
+            status: 'active',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: '新运行已开始',
+            type: 'task'
+          })
+        );
+        break;
+      case 'run.completed':
+        items.push(
+          createTimelineEntry({
+            description: `Run ${envelope.event.run.id} 已完成`,
+            id: envelope.event.run.id,
+            label: 'Run',
+            status: 'success',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: '运行完成',
+            type: 'result'
+          })
+        );
+        break;
+      case 'run.cancelled':
+        items.push(
+          createTimelineEntry({
+            description: envelope.event.reason,
+            id: envelope.event.run.id,
+            label: 'Run',
+            status: 'warning',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: '运行已取消',
+            type: 'result'
+          })
+        );
+        break;
+      case 'run.failed':
+        items.push(
+          createTimelineEntry({
+            description: envelope.event.error,
+            id: envelope.event.run.id,
+            label: 'Run',
+            status: 'error',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: '运行失败',
+            type: 'error'
+          })
+        );
+        break;
       case 'tool.pending':
         items.push(
           createTimelineEntry({
@@ -312,7 +392,10 @@ export function buildTimelineItemsFromMessages(messages: MessageDto[]) {
   return toTimelineItems(
     messages.map((message, index) =>
       createTimelineEntry({
-        description: getMessageBodyText(message) || '无消息内容',
+        description:
+          message.status === 'cancelled'
+            ? '本轮回复已取消'
+            : getMessageBodyText(message) || '无消息内容',
         id: message.id,
         label:
           message.role === 'assistant'
@@ -320,15 +403,22 @@ export function buildTimelineItemsFromMessages(messages: MessageDto[]) {
             : message.role === 'user'
               ? 'User'
               : 'Message',
-        status: message.role === 'assistant' ? 'success' : 'info',
+        status:
+          message.status === 'cancelled'
+            ? 'warning'
+            : message.role === 'assistant'
+              ? 'success'
+              : 'info',
         sortKey: `${message.createdAt}:${String(index).padStart(8, '0')}`,
         time: formatTimestamp(message.createdAt),
         title:
-          message.role === 'assistant'
-            ? 'Assistant 响应完成'
-            : message.role === 'user'
-              ? '用户消息'
-              : '消息创建',
+          message.status === 'cancelled'
+            ? 'Assistant 响应已取消'
+            : message.role === 'assistant'
+              ? 'Assistant 响应完成'
+              : message.role === 'user'
+                ? '用户消息'
+                : '消息创建',
         type: 'message'
       })
     )
@@ -369,6 +459,8 @@ function getSessionProgressLabel(status: SessionDto['status']) {
   switch (status) {
     case 'planning':
       return '等待规划阶段接入';
+    case 'idle':
+      return '空闲，可继续输入';
     case 'executing':
       return '执行中';
     case 'waiting_approval':
@@ -394,6 +486,8 @@ function getSessionSummary(session: SessionDto) {
   switch (session.status) {
     case 'planning':
       return '当前已接通真实 session 元信息，任务拆解与时间线仍使用占位数据。';
+    case 'idle':
+      return '当前没有正在运行的 run，可以继续补充要求并发起下一轮执行。';
     case 'waiting_approval':
       return '当前会话停在待审批状态，后续将由 approval/task 数据替换占位内容。';
     case 'completed':
@@ -523,9 +617,11 @@ export function buildSessionView(
     updatedAt: formatTimestamp(session.updatedAt),
     workspaceId: session.workspaceId,
     composerHint:
-      session.status === 'waiting_approval'
-        ? '当前会话正在等待审批，处理完成后会继续流式更新。'
-        : '消息已经接通真实后端，回答和工具事件会通过 SSE 持续推送。',
+      session.status === 'idle'
+        ? '当前会话空闲，可以发送“继续”或补充新的约束。'
+        : session.status === 'waiting_approval'
+          ? '当前会话正在等待审批，处理完成后会继续流式更新。'
+          : '消息已经接通真实后端，回答和工具事件会通过 SSE 持续推送。',
     composerValue: ''
   };
 }

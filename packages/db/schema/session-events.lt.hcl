@@ -16,6 +16,11 @@ table "session_events" {
     null = true
   }
 
+  column "run_id" {
+    type = text
+    null = true
+  }
+
   column "sequence_no" {
     type = integer
     null = false
@@ -79,6 +84,12 @@ table "session_events" {
     on_delete   = SET_NULL
   }
 
+  foreign_key "session_events_run_id_fkey" {
+    columns     = [column.run_id]
+    ref_columns = [table.agent_runs.column.id]
+    on_delete   = SET_NULL
+  }
+
   check "session_events_valid_level" {
     expr = "level IN ('debug', 'info', 'warning', 'error')"
   }
@@ -94,5 +105,9 @@ table "session_events" {
 
   index "idx_session_events_task_sequence" {
     columns = [column.task_id, column.sequence_no]
+  }
+
+  index "idx_session_events_run_sequence" {
+    columns = [column.run_id, column.sequence_no]
   }
 }
