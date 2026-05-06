@@ -1,7 +1,7 @@
 import { sessions } from '@opencode/orm';
 import type { NewSession, SessionRow } from '@opencode/orm';
 import type { SessionDto, SessionStatus } from '@opencode/shared';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../db/client.js';
 
 type UpdateResumeStateInput = {
@@ -50,6 +50,20 @@ export const sessionRepository = {
       .select()
       .from(sessions)
       .where(eq(sessions.workspaceId, workspaceId))
+      .orderBy(desc(sessions.updatedAt))
+      .all()
+      .map(mapSessionRow);
+  },
+
+  listByStatuses(statuses: SessionStatus[]): SessionDto[] {
+    if (statuses.length === 0) {
+      return [];
+    }
+
+    return db
+      .select()
+      .from(sessions)
+      .where(inArray(sessions.status, statuses))
       .orderBy(desc(sessions.updatedAt))
       .all()
       .map(mapSessionRow);

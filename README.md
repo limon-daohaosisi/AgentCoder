@@ -1,16 +1,18 @@
 # OpenCode Web Lite MVP
 
-根据 [`opencode-web-lite-mvp.md`](opencode-web-lite-mvp.md) 搭出的 monorepo 骨架，先把 Web、Server、共享类型和 agent core 的基础结构建好，后续可以直接往里填业务实现。
+轻量版 AI Agent Web Console 的 pnpm monorepo。前端提供会话、时间线、任务面板、详情面板和审批交互；后端负责 SQLite 持久化、SSE 事件流、AI SDK 模型调用、工具执行和审批恢复。
 
 ## 目录
 
 ```text
 apps/
-  web/       React + Vite + TanStack Router 工作台骨架
-  server/    Hono + SSE + 本地能力占位实现
+  web/       React 19 + Vite + TanStack Router 工作台
+  server/    Hono REST + SSE + SQLite + AI provider adapter
 packages/
-  shared/    前后端共享 DTO、事件、工具类型
-  agent-core system prompt、tool registry、loop 类型
+  agent/     Agent 执行内核：上下文、RunLoop、SessionProcessor、工具和审批恢复
+  shared/    前后端共享 DTO、事件、contract、工具类型
+  orm/       Drizzle ORM schema
+  db/        Atlas migration schema 和 SQL migrations
 ```
 
 ## 开发命令
@@ -21,13 +23,14 @@ pnpm dev:web
 export OPENAI_BASE_URL="https://code.contextid.cn/v1"
 export OPENAI_API_KEY="sk-xxx"
 export OPENAI_MODEL="gpt-5.4"
+DATABASE_URL="sqlite://../../apps/server/data/opencode.db" pnpm db:apply
 DATABASE_PATH=./data/opencode.db pnpm dev:server
 ```
 
 ## 当前状态
 
-- 已建好 monorepo 结构和工作区配置
-- 已建好 Web 三栏工作台页面骨架
-- 已建好 Server 路由、服务、agent 和 tool 目录
-- 共享类型、事件模型、工具 schema 已整理到 `packages/shared` 和 `packages/agent-core`
-- 数据库、模型接入、真正的审批流和会话恢复还没有接通
+- 已接通 SQLite 持久化、session/message/event repository、SSE replay + live fan-out
+- 已通过 AI SDK 和 `@ai-sdk/openai` 接入 OpenAI-compatible provider
+- Agent 主链路以 `packages/agent` 的 `Lifecycle`、`RunLoop`、`SessionProcessor` 为核心
+- 已支持流式 assistant 消息、内置工具、审批暂停/恢复、取消当前 run 和 server 单测
+- 仍在演进：真实任务/计划数据接入 `TaskBoard`、compact/context pruning、启动时进程恢复和更多工具/UI 细节

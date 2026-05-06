@@ -96,6 +96,26 @@ export const agentRunRepository = {
       .map(mapAgentRunRow);
   },
 
+  listOpen(): AgentRunDto[] {
+    return db
+      .select()
+      .from(agentRuns)
+      .where(inArray(agentRuns.status, openRunStatuses))
+      .orderBy(desc(agentRuns.createdAt))
+      .all()
+      .map(mapAgentRunRow);
+  },
+
+  listOpenByStatus(status: Extract<AgentRunStatus, 'running' | 'waiting_approval'>): AgentRunDto[] {
+    return db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.status, status))
+      .orderBy(desc(agentRuns.createdAt))
+      .all()
+      .map(mapAgentRunRow);
+  },
+
   markBlocked(input: {
     errorText: string;
     id: string;

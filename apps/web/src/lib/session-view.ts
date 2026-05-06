@@ -253,6 +253,20 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
           })
         );
         break;
+      case 'run.blocked':
+        items.push(
+          createTimelineEntry({
+            description: envelope.event.error,
+            id: envelope.event.run.id,
+            label: 'Run',
+            status: 'warning',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: '运行已阻塞',
+            type: 'result'
+          })
+        );
+        break;
       case 'run.failed':
         items.push(
           createTimelineEntry({
@@ -352,17 +366,18 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
           })
         );
         break;
-      case 'session.failed':
+      case 'session.recovered':
         items.push(
           createTimelineEntry({
-            description: envelope.event.error,
+            description:
+              envelope.event.diagnostics?.join('\n') || '启动恢复已收敛旧运行状态',
             id: `${envelope.sequenceNo}`,
             label: 'Session',
-            status: 'error',
+            status: 'warning',
             sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
             time,
-            title: 'Session 失败',
-            type: 'error'
+            title: 'Session 已恢复',
+            type: 'result'
           })
         );
         break;
@@ -467,8 +482,6 @@ function getSessionProgressLabel(status: SessionDto['status']) {
       return '等待审批';
     case 'blocked':
       return '已阻塞';
-    case 'failed':
-      return '执行失败';
     case 'completed':
       return '已完成';
     case 'archived':
@@ -480,7 +493,9 @@ function getSessionProgressLabel(status: SessionDto['status']) {
 
 function getSessionSummary(session: SessionDto) {
   if (session.lastErrorText) {
-    return session.lastErrorText;
+    return session.status === 'blocked'
+      ? `当前会话被阻塞，需要先恢复后才能继续：${session.lastErrorText}`
+      : `上一次运行失败：${session.lastErrorText}。你可以继续输入或重试。`;
   }
 
   switch (session.status) {
@@ -492,8 +507,8 @@ function getSessionSummary(session: SessionDto) {
       return '当前会话停在待审批状态，后续将由 approval/task 数据替换占位内容。';
     case 'completed':
       return '当前会话已完成，前端已显示真实 session 状态和 workspace 文件树。';
-    case 'failed':
-      return '当前会话处于失败状态，错误详情已由 session current-state 返回。';
+    case 'blocked':
+      return '当前会话被阻塞，需要先恢复后才能继续。';
     default:
       return '当前会话已接通真实 workspace/session CRUD，其余执行态内容仍为原型占位。';
   }

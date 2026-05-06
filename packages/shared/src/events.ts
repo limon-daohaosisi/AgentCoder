@@ -14,6 +14,7 @@ export type SessionEvent =
       run: AgentRunDto;
       reason: string;
     }
+  | { type: 'run.blocked'; sessionId: string; run: AgentRunDto; error: string }
   | { type: 'run.failed'; sessionId: string; run: AgentRunDto; error: string }
   | { type: 'message.created'; sessionId: string; message: MessageDto }
   | {
@@ -74,7 +75,19 @@ export type SessionEvent =
       error: string;
       runId?: string;
     }
-  | { type: 'session.failed'; sessionId: string; error: string; runId?: string }
+  | {
+      type: 'session.recovered';
+      diagnostics?: string[];
+      interruptedRunIds: string[];
+      keptWaitingApprovalRunIds?: string[];
+      reason:
+        | 'invalid_waiting_approval_checkpoint'
+        | 'multiple_open_runs'
+        | 'server_startup_recovery'
+        | 'stale_executing_session';
+      recoveredAt: string;
+      sessionId: string;
+    }
   | {
       type: 'session.resumable';
       sessionId: string;

@@ -8,6 +8,7 @@ const SESSION_EVENT_NAMES = [
   'run.created',
   'run.completed',
   'run.cancelled',
+  'run.blocked',
   'run.failed',
   'message.created',
   'message.delta',
@@ -19,7 +20,7 @@ const SESSION_EVENT_NAMES = [
   'tool.running',
   'tool.completed',
   'tool.failed',
-  'session.failed',
+  'session.recovered',
   'session.resumable',
   'session.updated'
 ] as const;

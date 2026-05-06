@@ -12,6 +12,7 @@ function deriveCreatedAt(event: SessionEvent) {
     case 'run.created':
       return event.run.createdAt;
     case 'run.completed':
+    case 'run.blocked':
     case 'run.failed':
       return event.run.endedAt ?? event.run.updatedAt;
     case 'run.cancelled':
@@ -25,6 +26,8 @@ function deriveCreatedAt(event: SessionEvent) {
       return event.toolCall.updatedAt;
     case 'session.updated':
       return event.updatedAt ?? event.timestamp ?? new Date().toISOString();
+    case 'session.recovered':
+      return event.recoveredAt;
     case 'session.resumable': {
       const checkpoint = event.checkpoint;
 
@@ -71,6 +74,14 @@ function deriveMetadata(event: SessionEvent) {
         entityId: event.run.id,
         entityType: 'agent_run',
         headline: 'Run cancelled'
+      };
+    case 'run.blocked':
+      return {
+        detailText: event.error,
+        entityId: event.run.id,
+        entityType: 'agent_run',
+        headline: 'Run blocked',
+        level: 'warning' as const
       };
     case 'run.failed':
       return {
@@ -132,13 +143,13 @@ function deriveMetadata(event: SessionEvent) {
         headline: 'Tool failed',
         level: 'error' as const
       };
-    case 'session.failed':
+    case 'session.recovered':
       return {
-        detailText: event.error,
+        detailText: event.diagnostics?.join('; '),
         entityId: event.sessionId,
         entityType: 'session',
-        headline: 'Session failed',
-        level: 'error' as const
+        headline: 'Session recovered',
+        level: 'warning' as const
       };
     case 'session.resumable':
       return {
@@ -168,6 +179,7 @@ function deriveRunId(event: SessionEvent) {
   if (
     event.type === 'run.created' ||
     event.type === 'run.completed' ||
+    event.type === 'run.blocked' ||
     event.type === 'run.cancelled' ||
     event.type === 'run.failed'
   ) {
@@ -202,6 +214,16 @@ export const sessionEventService = {
 
     sessionStreamHub.publish(envelope);
     return envelope;
+  },
+
+  publishPersisted(envelope: SessionEventEnvelope) {
+    sessionStreamHub.publish(envelope);
+  },
+
+  publishPersistedMany(envelopes: Iterable<SessionEventEnvelope>) {
+    for (const envelope of envelopes) {
+      sessionStreamHub.publish(envelope);
+    }
   },
 
   listAfterSequence(sessionId: string, afterSequenceNo: number) {

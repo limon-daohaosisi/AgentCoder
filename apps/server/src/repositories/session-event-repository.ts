@@ -20,9 +20,9 @@ type AppendSessionEventInput = {
 
 function buildFallbackEvent(row: SessionEventRow): SessionEvent {
   return {
-    error: 'Failed to parse persisted session event payload.',
     sessionId: row.sessionId,
-    type: 'session.failed'
+    type: 'session.updated',
+    updatedAt: row.createdAt
   };
 }
 

@@ -15,6 +15,7 @@ const [
   { sessionInteractionService },
   { toolStateService },
   { sessionEventService },
+  { sessionRecoveryService },
   { sessionService },
   { workspaceService }
 ] = await Promise.all([
@@ -28,6 +29,7 @@ const [
   import('../services/agent/interaction-service.js'),
   import('../services/agent/tool-state-service.js'),
   import('../services/session-events/event-service.js'),
+  import('../services/session/recovery-service.js'),
   import('../services/session/service.js'),
   import('../services/workspace/service.js')
 ]);
@@ -66,6 +68,7 @@ export const dbTestContext = {
   partService,
   sessionEventService,
   sessionInteractionService,
+  sessionRecoveryService,
   sessionService,
   sqlite,
   toolStateService,

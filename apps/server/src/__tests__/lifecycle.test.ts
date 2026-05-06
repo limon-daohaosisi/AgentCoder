@@ -129,7 +129,7 @@ afterEach(() => {
   resetTestDatabase();
 });
 
-test('Lifecycle maps loop failures to session.failed state', async () => {
+test('Lifecycle maps loop failures to run.failed and session idle', async () => {
   const session = createSession();
   const lifecycle = new Lifecycle(
     {
@@ -148,7 +148,8 @@ test('Lifecycle maps loop failures to session.failed state', async () => {
   });
 
   assert.deepEqual(result, { reason: 'failed' });
-  assert.equal(sessionService.getSession(session.id)?.status, 'failed');
+  assert.equal(agentRunRepository.getById(run.id)?.status, 'failed');
+  assert.equal(sessionService.getSession(session.id)?.status, 'idle');
   assert.equal(
     sessionService.getSession(session.id)?.lastErrorText,
     'loop exploded'
@@ -157,7 +158,7 @@ test('Lifecycle maps loop failures to session.failed state', async () => {
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['run.failed', 'session.failed', 'session.updated']
+    ['run.failed', 'session.updated']
   );
 });
 

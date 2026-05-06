@@ -248,16 +248,10 @@ export class Lifecycle {
             error: result.error,
             run,
             sessionId,
-            type: 'run.failed'
+            type: 'run.blocked'
           });
         }
 
-        this.deps.appendSessionEvent({
-          error: result.error,
-          runId,
-          sessionId,
-          type: 'session.failed'
-        });
         this.appendSessionUpdated(updatedSession, runId);
         return { reason: result.kind };
       }
@@ -283,9 +277,10 @@ export class Lifecycle {
       runId
     });
     const updatedSession = this.deps.updateSessionRuntimeState({
+      lastCheckpoint: null,
       lastErrorText: errorMessage,
       sessionId,
-      status: 'failed'
+      status: 'idle'
     });
 
     if (run) {
@@ -296,13 +291,6 @@ export class Lifecycle {
         type: 'run.failed'
       });
     }
-
-    this.deps.appendSessionEvent({
-      error: errorMessage,
-      runId,
-      sessionId,
-      type: 'session.failed'
-    });
 
     this.appendSessionUpdated(updatedSession, runId);
 

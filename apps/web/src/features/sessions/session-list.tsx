@@ -28,8 +28,6 @@ function sessionStateLabel(status: SessionDto['status']) {
       return '待审批';
     case 'blocked':
       return '已阻塞';
-    case 'failed':
-      return '失败';
     case 'completed':
       return '已完成';
     case 'archived':
@@ -49,8 +47,6 @@ function sessionProgressLabel(status: SessionDto['status']) {
       return '等待审批';
     case 'completed':
       return '完成';
-    case 'failed':
-      return '失败';
     case 'blocked':
       return '已阻塞';
     case 'archived':
