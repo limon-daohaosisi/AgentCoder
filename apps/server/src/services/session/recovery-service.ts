@@ -6,7 +6,10 @@ import type {
   SessionEventEnvelope,
   ToolCallDto
 } from '@opencode/shared';
-import { parseSessionCheckpoint, validateApprovalResume } from '@opencode/agent';
+import {
+  parseSessionCheckpoint,
+  validateApprovalResume
+} from '@opencode/agent';
 import { sessionRecoveryRepository } from '../../repositories/session-recovery-repository.js';
 import { approvalRepository } from '../../repositories/approval-repository.js';
 import { sessionEventService } from '../session-events/event-service.js';
@@ -55,7 +58,8 @@ type SessionRecoveryDecision =
       reason: 'multiple_open_runs' | 'server_startup_recovery';
     };
 
-const interruptedRunErrorText = 'Previous run was interrupted by server restart.';
+const interruptedRunErrorText =
+  'Previous run was interrupted by server restart.';
 const invalidWaitingApprovalErrorText =
   'Invalid waiting approval checkpoint during startup recovery.';
 const staleExecutingErrorText =
@@ -159,7 +163,9 @@ function decideSessionRecovery(input: {
     if (run.status === 'waiting_approval') {
       blockedRunIds.push(run.id);
       const checkpoint = parseSessionCheckpoint(run.lastCheckpointJson);
-      const sessionCheckpoint = parseSessionCheckpoint(input.session.lastCheckpointJson);
+      const sessionCheckpoint = parseSessionCheckpoint(
+        input.session.lastCheckpointJson
+      );
 
       if (!sessionCheckpoint) {
         invalidDiagnostics.push(
@@ -186,13 +192,16 @@ function decideSessionRecovery(input: {
         ? messagePartService.getPart(checkpoint.partId)
         : null;
       const toolCall = checkpoint?.toolCallId
-        ? candidate.openToolCalls.find((openCall) => openCall.id === checkpoint.toolCallId) ??
-          null
+        ? (candidate.openToolCalls.find(
+            (openCall) => openCall.id === checkpoint.toolCallId
+          ) ?? null)
         : null;
       const validation = validateWaitingApprovalRun({
         checkpoint,
         part,
-        pendingApprovals: approvalRepository.listPendingBySession(input.session.id),
+        pendingApprovals: approvalRepository.listPendingBySession(
+          input.session.id
+        ),
         session: input.session,
         toolCall
       });
@@ -229,7 +238,9 @@ function decideSessionRecovery(input: {
       diagnostics,
       interruptedRunIds,
       keptWaitingApprovalRunIds:
-        keptWaitingApprovalRunIds.length > 0 ? keptWaitingApprovalRunIds : undefined,
+        keptWaitingApprovalRunIds.length > 0
+          ? keptWaitingApprovalRunIds
+          : undefined,
       kind: 'recover_interrupted',
       sessionStatus:
         keptWaitingApprovalRunIds.length > 0 ? 'waiting_approval' : 'idle'
@@ -271,28 +282,31 @@ export const sessionRecoveryService = {
 
         switch (decision.kind) {
           case 'block_invalid_waiting_approval': {
-            const result = sessionRecoveryRepository.blockInvalidWaitingApproval({
-              blockedRunIds: decision.blockedRunIds,
-              clearCheckpointRunIds: decision.clearCheckpointRunIds,
-              diagnostics: decision.diagnostics,
-              errorText: composeErrorText(
-                invalidWaitingApprovalErrorText,
-                decision.diagnostics
-              ),
-              interruptedRunIds: decision.interruptedRunIds,
-              recoveredAt,
-              sessionId: candidate.session.id
-            });
+            const result =
+              sessionRecoveryRepository.blockInvalidWaitingApproval({
+                blockedRunIds: decision.blockedRunIds,
+                clearCheckpointRunIds: decision.clearCheckpointRunIds,
+                diagnostics: decision.diagnostics,
+                errorText: composeErrorText(
+                  invalidWaitingApprovalErrorText,
+                  decision.diagnostics
+                ),
+                interruptedRunIds: decision.interruptedRunIds,
+                recoveredAt,
+                sessionId: candidate.session.id
+              });
 
             report.blockedRuns += result.blockedRuns.length;
-            report.blockedSessions += result.session?.status === 'blocked' ? 1 : 0;
+            report.blockedSessions +=
+              result.session?.status === 'blocked' ? 1 : 0;
             report.interruptedRuns += decision.interruptedRunIds?.length ?? 0;
             publishRecoveryEnvelopes(result.envelopes);
             break;
           }
           case 'recover_interrupted': {
             const result = sessionRecoveryRepository.recoverInterruptedRuns({
-              clearSessionCheckpoint: decision.sessionStatus !== 'waiting_approval',
+              clearSessionCheckpoint:
+                decision.sessionStatus !== 'waiting_approval',
               diagnostics: decision.diagnostics,
               errorText: composeErrorText(
                 interruptedRunErrorText,
@@ -325,7 +339,8 @@ export const sessionRecoveryService = {
               sessionId: candidate.session.id
             });
 
-            report.waitingApprovalsKept += decision.keptWaitingApprovalRunIds.length;
+            report.waitingApprovalsKept +=
+              decision.keptWaitingApprovalRunIds.length;
             publishRecoveryEnvelopes(result.envelopes);
             break;
           }
@@ -369,7 +384,10 @@ export const sessionRecoveryService = {
         ];
         const result = sessionRecoveryRepository.recoverStaleSession({
           diagnostics,
-          errorText: composeErrorText(staleWaitingApprovalErrorText, diagnostics),
+          errorText: composeErrorText(
+            staleWaitingApprovalErrorText,
+            diagnostics
+          ),
           reason: 'invalid_waiting_approval_checkpoint',
           recoveredAt,
           sessionId: session.id,

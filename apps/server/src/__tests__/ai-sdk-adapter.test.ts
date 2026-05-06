@@ -242,14 +242,17 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
 
 test('ContextBuilder repairs dangling tools outside active approval waits', () => {
   const session = createSession();
+  const now = '2026-04-27T00:00:00.000Z';
 
   messageService.createMessage({
     content: [{ text: 'Read file', type: 'text' }],
+    createdAt: now,
     role: 'user',
     sessionId: session.id
   });
   const assistant = messageService.createMessage({
     content: [],
+    createdAt: now,
     role: 'assistant',
     sessionId: session.id
   });

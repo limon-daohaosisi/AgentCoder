@@ -29,6 +29,10 @@ export function insertReminders(messages: MessageWithParts[]) {
   return messages;
 }
 
+function compareMessages(left: MessageWithParts, right: MessageWithParts) {
+  return left.createdAt.localeCompare(right.createdAt);
+}
+
 function defaultModel() {
   return {
     modelId: process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
@@ -253,11 +257,7 @@ export class ContextBuilder {
 
     const storedMessages = insertReminders(
       filterCompacted(this.deps.listMessages(input.sessionId))
-    ).sort((left, right) =>
-      left.createdAt === right.createdAt
-        ? left.id.localeCompare(right.id)
-        : left.createdAt.localeCompare(right.createdAt)
-    );
+    ).sort(compareMessages);
 
     assertCurrentSchema(storedMessages);
 

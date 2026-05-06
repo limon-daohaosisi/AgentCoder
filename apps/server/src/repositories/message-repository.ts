@@ -7,7 +7,7 @@ import type {
   MessageStatus,
   TokenUsageDto
 } from '@opencode/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
@@ -137,13 +137,17 @@ export const messageRepository = {
   },
 
   listBySession(sessionId: string): MessageDto[] {
-    return db
-      .select()
-      .from(messages)
-      .where(eq(messages.sessionId, sessionId))
-      .orderBy(asc(messages.createdAt))
-      .all()
-      .map(mapMessageRow);
+    return (
+      db
+        .select()
+        .from(messages)
+        .where(eq(messages.sessionId, sessionId))
+        // Message ids are random UUIDs, so keep SQLite insertion order when
+        // multiple messages share the same timestamp.
+        .orderBy(asc(messages.createdAt), asc(sql<number>`rowid`))
+        .all()
+        .map(mapMessageRow)
+    );
   },
 
   listRunningByRun(runId: string): MessageDto[] {
@@ -157,7 +161,7 @@ export const messageRepository = {
           eq(messages.status, 'running')
         )
       )
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(sql<number>`rowid`))
       .all()
       .map(mapMessageRow);
   },

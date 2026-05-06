@@ -191,10 +191,16 @@ test('startup recovery keeps valid waiting approval sessions resumable', () => {
   assert.equal(report.waitingApprovalsKept, 1);
   assert.equal(report.blockedRuns, 0);
   assert.equal(report.blockedSessions, 0);
-  assert.equal(sessionService.getSession(session.id)?.status, 'waiting_approval');
+  assert.equal(
+    sessionService.getSession(session.id)?.status,
+    'waiting_approval'
+  );
   assert.equal(agentRunRepository.getById(run.id)?.status, 'waiting_approval');
   assert.equal(approvalRepository.getById(approval.id)?.status, 'pending');
-  assert.equal(toolCallRepository.getById(createdTool.toolCall.id)?.status, 'pending_approval');
+  assert.equal(
+    toolCallRepository.getById(createdTool.toolCall.id)?.status,
+    'pending_approval'
+  );
   const recoveredToolPart = messagePartRepository.getById(toolPart.id);
   assert.equal(
     recoveredToolPart?.type === 'tool'
@@ -329,8 +335,14 @@ test('startup recovery converges interrupted running runs to blocked run and idl
   assert.equal(report.blockedRuns, 1);
   assert.equal(sessionService.getSession(session.id)?.status, 'idle');
   assert.equal(agentRunRepository.getById(run.id)?.status, 'blocked');
-  assert.equal(messageRepository.getById(assistantMessage.id)?.status, 'cancelled');
-  assert.equal(toolCallRepository.getById(createdTool.toolCall.id)?.status, 'failed');
+  assert.equal(
+    messageRepository.getById(assistantMessage.id)?.status,
+    'cancelled'
+  );
+  assert.equal(
+    toolCallRepository.getById(createdTool.toolCall.id)?.status,
+    'failed'
+  );
   const recoveredPart = messagePartRepository.getById(createdTool.part.id);
   assert.equal(recoveredPart?.type, 'tool');
   assert.equal(
@@ -377,7 +389,10 @@ test('startup recovery resets stale executing sessions without open runs', () =>
 
   assert.equal(report.staleExecutingSessions, 1);
   assert.equal(sessionService.getSession(session.id)?.status, 'idle');
-  assert.equal(sessionService.getSession(session.id)?.lastCheckpointJson, undefined);
+  assert.equal(
+    sessionService.getSession(session.id)?.lastCheckpointJson,
+    undefined
+  );
   assert.match(
     sessionService.getSession(session.id)?.lastErrorText ?? '',
     /stale_executing_session/u

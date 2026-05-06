@@ -80,15 +80,15 @@ type SessionStatus =
 
 状态含义：
 
-| 状态 | 含义 |
-| --- | --- |
-| `planning` | session 刚创建，还没有正式执行 |
-| `idle` | 当前没有 active run，可以接收新的用户输入 |
-| `executing` | 当前进程内应存在一个 active run 正在执行 |
-| `waiting_approval` | 当前 run 暂停，等待用户 approve/reject |
-| `blocked` | session 需要先执行恢复动作，否则不能继续 |
-| `completed` | session 整体任务完成，当前主链路可以暂不主动使用 |
-| `archived` | session 已归档，不可继续操作 |
+| 状态               | 含义                                             |
+| ------------------ | ------------------------------------------------ |
+| `planning`         | session 刚创建，还没有正式执行                   |
+| `idle`             | 当前没有 active run，可以接收新的用户输入        |
+| `executing`        | 当前进程内应存在一个 active run 正在执行         |
+| `waiting_approval` | 当前 run 暂停，等待用户 approve/reject           |
+| `blocked`          | session 需要先执行恢复动作，否则不能继续         |
+| `completed`        | session 整体任务完成，当前主链路可以暂不主动使用 |
+| `archived`         | session 已归档，不可继续操作                     |
 
 需要移除：
 
@@ -112,14 +112,14 @@ type AgentRunStatus =
 
 状态含义：
 
-| 状态 | 含义 |
-| --- | --- |
-| `running` | run 正在执行 |
-| `waiting_approval` | run 暂停等待 approval |
-| `completed` | run 正常结束 |
-| `cancelled` | run 被用户取消或系统明确中断 |
-| `failed` | run 因普通错误失败 |
-| `blocked` | run 因可识别阻塞原因无法继续 |
+| 状态               | 含义                         |
+| ------------------ | ---------------------------- |
+| `running`          | run 正在执行                 |
+| `waiting_approval` | run 暂停等待 approval        |
+| `completed`        | run 正常结束                 |
+| `cancelled`        | run 被用户取消或系统明确中断 |
+| `failed`           | run 因普通错误失败           |
+| `blocked`          | run 因可识别阻塞原因无法继续 |
 
 ## run blocked 与 session blocked 的区别
 
@@ -129,16 +129,16 @@ type AgentRunStatus =
 
 推荐规则：
 
-| 场景 | run 状态 | session 状态 | 原因 |
-| --- | --- | --- | --- |
-| provider timeout | `failed` | `idle` | 用户可以重试或继续输入 |
-| 模型 stream 报错 | `failed` | `idle` | 失败属于本次 run |
-| 用户取消 run | `cancelled` | `idle` | 用户明确中断，session 可继续 |
-| server 重启中断 run，状态可安全收敛 | `blocked` | `idle` | 不自动重跑，但允许用户决定下一步 |
-| context too large 且 compact 未实现 | `blocked` | `blocked` | 下一次输入仍会失败，需要 compact/reset/fork |
-| waiting approval checkpoint 不一致 | `blocked` | `blocked` | 需要恢复动作，不能假装可继续 |
-| 数据库状态互相矛盾 | `blocked` | `blocked` | 需要人工或专门 recovery 修复 |
-| 同一 session 存在多个 open run | 全部收敛为 `blocked` | `idle` 或 `blocked` | recovery 必须记录诊断，不允许只处理最新 run |
+| 场景                                | run 状态             | session 状态        | 原因                                        |
+| ----------------------------------- | -------------------- | ------------------- | ------------------------------------------- |
+| provider timeout                    | `failed`             | `idle`              | 用户可以重试或继续输入                      |
+| 模型 stream 报错                    | `failed`             | `idle`              | 失败属于本次 run                            |
+| 用户取消 run                        | `cancelled`          | `idle`              | 用户明确中断，session 可继续                |
+| server 重启中断 run，状态可安全收敛 | `blocked`            | `idle`              | 不自动重跑，但允许用户决定下一步            |
+| context too large 且 compact 未实现 | `blocked`            | `blocked`           | 下一次输入仍会失败，需要 compact/reset/fork |
+| waiting approval checkpoint 不一致  | `blocked`            | `blocked`           | 需要恢复动作，不能假装可继续                |
+| 数据库状态互相矛盾                  | `blocked`            | `blocked`           | 需要人工或专门 recovery 修复                |
+| 同一 session 存在多个 open run      | 全部收敛为 `blocked` | `idle` 或 `blocked` | recovery 必须记录诊断，不允许只处理最新 run |
 
 第一阶段建议：
 

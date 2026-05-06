@@ -83,7 +83,10 @@ type RecoverInterruptedRunsInput = {
   reason: RecoveryReason;
   recoveredAt: string;
   sessionId: string;
-  sessionStatus: Extract<SessionStatus, 'blocked' | 'idle' | 'waiting_approval'>;
+  sessionStatus: Extract<
+    SessionStatus,
+    'blocked' | 'idle' | 'waiting_approval'
+  >;
 };
 
 type BlockInvalidWaitingApprovalInput = {
@@ -474,7 +477,10 @@ export const sessionRecoveryRepository = {
             updatedAt: input.recoveredAt
           })
           .where(
-            and(eq(agentRuns.id, runId), inArray(agentRuns.status, openRunStatuses))
+            and(
+              eq(agentRuns.id, runId),
+              inArray(agentRuns.status, openRunStatuses)
+            )
           )
           .returning()
           .get();
@@ -491,7 +497,9 @@ export const sessionRecoveryRepository = {
             decisionReasonText: input.errorText,
             status: 'rejected'
           })
-          .where(and(eq(approvals.runId, runId), eq(approvals.status, 'pending')))
+          .where(
+            and(eq(approvals.runId, runId), eq(approvals.status, 'pending'))
+          )
           .returning()
           .all();
 
@@ -553,7 +561,9 @@ export const sessionRecoveryRepository = {
         const toolPartRows = tx
           .select()
           .from(messageParts)
-          .where(and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool')))
+          .where(
+            and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool'))
+          )
           .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
           .all();
 
@@ -618,7 +628,10 @@ export const sessionRecoveryRepository = {
           .set({
             completedAt: input.recoveredAt,
             errorText: input.errorText,
-            resultJson: stringifyJsonValue({ error: input.errorText, ok: false }),
+            resultJson: stringifyJsonValue({
+              error: input.errorText,
+              ok: false
+            }),
             status: 'failed',
             updatedAt: input.recoveredAt
           })
@@ -812,7 +825,10 @@ export const sessionRecoveryRepository = {
           .update(agentRuns)
           .set(runChanges)
           .where(
-            and(eq(agentRuns.id, runId), inArray(agentRuns.status, openRunStatuses))
+            and(
+              eq(agentRuns.id, runId),
+              inArray(agentRuns.status, openRunStatuses)
+            )
           )
           .returning()
           .get();
@@ -881,7 +897,9 @@ export const sessionRecoveryRepository = {
         const toolPartRows = tx
           .select()
           .from(messageParts)
-          .where(and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool')))
+          .where(
+            and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool'))
+          )
           .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
           .all();
 
@@ -946,7 +964,10 @@ export const sessionRecoveryRepository = {
           .set({
             completedAt: input.recoveredAt,
             errorText: input.errorText,
-            resultJson: stringifyJsonValue({ error: input.errorText, ok: false }),
+            resultJson: stringifyJsonValue({
+              error: input.errorText,
+              ok: false
+            }),
             status: 'failed',
             updatedAt: input.recoveredAt
           })
@@ -990,7 +1011,9 @@ export const sessionRecoveryRepository = {
             decisionReasonText: input.errorText,
             status: 'rejected'
           })
-          .where(and(eq(approvals.runId, runId), eq(approvals.status, 'pending')))
+          .where(
+            and(eq(approvals.runId, runId), eq(approvals.status, 'pending'))
+          )
           .returning()
           .all();
 

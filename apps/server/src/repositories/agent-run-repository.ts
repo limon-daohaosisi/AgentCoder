@@ -106,7 +106,9 @@ export const agentRunRepository = {
       .map(mapAgentRunRow);
   },
 
-  listOpenByStatus(status: Extract<AgentRunStatus, 'running' | 'waiting_approval'>): AgentRunDto[] {
+  listOpenByStatus(
+    status: Extract<AgentRunStatus, 'running' | 'waiting_approval'>
+  ): AgentRunDto[] {
     return db
       .select()
       .from(agentRuns)

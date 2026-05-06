@@ -370,7 +370,8 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
         items.push(
           createTimelineEntry({
             description:
-              envelope.event.diagnostics?.join('\n') || '启动恢复已收敛旧运行状态',
+              envelope.event.diagnostics?.join('\n') ||
+              '启动恢复已收敛旧运行状态',
             id: `${envelope.sequenceNo}`,
             label: 'Session',
             status: 'warning',
