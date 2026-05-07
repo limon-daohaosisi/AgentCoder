@@ -194,14 +194,80 @@ test('Lifecycle maps completed runs to run.completed and session idle', async ()
 test('Lifecycle owns paused approval run/session state and resumable event', async () => {
   const session = createSession();
   const run = createRun(session.id);
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+  const createdTool = partService.createToolPartWithToolCall({
+    part: {
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'part-pause-test',
+      messageId: assistant.id,
+      modelToolCallId: 'model-call-pause-test',
+      order: 0,
+      sessionId: session.id,
+      state: {
+        input: { command: 'pwd' },
+        status: 'pending'
+      },
+      toolCallId: 'tool-call-pause-test',
+      toolName: 'run_command',
+      type: 'tool',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    },
+    toolCall: {
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'tool-call-pause-test',
+      input: { command: 'pwd' },
+      messageId: assistant.id,
+      messagePartId: 'part-pause-test',
+      modelToolCallId: 'model-call-pause-test',
+      requiresApproval: true,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'pending_approval',
+      taskId: null,
+      toolName: 'run_command',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    }
+  });
+  const approval = {
+    createdAt: '2026-04-29T14:00:00.000Z',
+    decisionReasonText: undefined,
+    decidedAt: undefined,
+    decidedBy: undefined,
+    decisionScope: 'once',
+    id: 'approval-pause-test',
+    kind: 'run_command',
+    payload: { command: 'pwd' },
+    runId: run.id,
+    sessionId: session.id,
+    status: 'pending',
+    suggestedRuleJson: undefined,
+    taskId: undefined,
+    toolCallId: createdTool.toolCall.id
+  } as const;
   const checkpoint = buildSessionCheckpoint({
+    approvalId: approval.id,
     kind: 'waiting_approval',
+    messageId: assistant.id,
+    modelToolCallId: createdTool.toolCall.modelToolCallId,
+    partId: createdTool.part.id,
+    toolCallId: createdTool.toolCall.id,
     updatedAt: '2026-04-29T14:00:00.000Z'
   });
   const lifecycle = new Lifecycle(
     {
       async run() {
-        return { checkpoint, kind: 'paused_for_approval' };
+        return {
+          approval,
+          checkpoint,
+          kind: 'paused_for_approval',
+          toolCall: createdTool.toolCall
+        };
       }
     },
     buildLifecycleDeps()
@@ -223,7 +289,7 @@ test('Lifecycle owns paused approval run/session state and resumable event', asy
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['session.resumable', 'session.updated']
+    ['tool.pending', 'approval.created', 'session.resumable', 'session.updated']
   );
 });
 

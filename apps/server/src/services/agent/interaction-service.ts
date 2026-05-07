@@ -1,8 +1,10 @@
 import type {
   ApprovalDto,
+  MessagePart,
   SubmitSessionMessageResponse,
   ToolCallDto
 } from '@opencode/shared';
+import { Database } from '../../db/runtime.js';
 import { normalizePrompt, type Lifecycle } from '@opencode/agent';
 import { approvalRepository } from '../../repositories/approval-repository.js';
 import { toolCallRepository } from '../../repositories/tool-call-repository.js';
@@ -15,6 +17,20 @@ import { sessionService } from '../session/service.js';
 import { sessionResumeService } from '../session/resume-service.js';
 import { sessionEventService } from '../session-events/event-service.js';
 import { agentRunService } from './run-service.js';
+import { toolStateService } from './tool-state-service.js';
+
+type ResolveApprovalContext =
+  | {
+      approval: ApprovalDto;
+      part: Extract<MessagePart, { type: 'tool' }>;
+      runId: string;
+      toolCall: ToolCallDto;
+    }
+  | {
+      approval: ApprovalDto;
+      runId: string;
+      toolCall: ToolCallDto;
+    };
 
 type SubmitUserMessageInput = {
   content: string;
@@ -46,58 +62,60 @@ export class SessionInteractionService {
     const response = await this.runner.ensureRunning(
       input.sessionId,
       async () => {
-        const run = agentRunService.createRun({ sessionId: input.sessionId });
-        const normalized = normalizePrompt({
-          content: input.content,
-          sessionId: input.sessionId
-        });
-        const message = messageService.createMessage({
-          ...normalized.message,
-          content: normalized.parts,
-          runId: run.id
-        });
-
-        const triggeredRun =
-          agentRunService.setTriggerMessage({
-            runId: run.id,
-            triggerMessageId: message.id
-          }) ?? run;
-
-        sessionEventService.append({
-          run: triggeredRun,
-          sessionId: input.sessionId,
-          type: 'run.created'
-        });
-
-        sessionEventService.append({
-          message,
-          sessionId: input.sessionId,
-          type: 'message.created'
-        });
-
-        const updatedSession = sessionService.updateSessionRuntimeState({
-          lastErrorText: null,
-          sessionId: input.sessionId,
-          status: 'executing'
-        });
-
-        if (updatedSession) {
-          sessionEventService.append({
-            sessionId: updatedSession.id,
-            runId: run.id,
-            type: 'session.updated',
-            updatedAt: updatedSession.updatedAt
+        return Database.transaction(() => {
+          const run = agentRunService.createRun({ sessionId: input.sessionId });
+          const normalized = normalizePrompt({
+            content: input.content,
+            sessionId: input.sessionId
           });
-        }
+          const message = messageService.createMessage({
+            ...normalized.message,
+            content: normalized.parts,
+            runId: run.id
+          });
 
-        return {
-          ctx: {
-            accepted: true as const,
+          const triggeredRun =
+            agentRunService.setTriggerMessage({
+              runId: run.id,
+              triggerMessageId: message.id
+            }) ?? run;
+
+          sessionEventService.append({
+            run: triggeredRun,
+            sessionId: input.sessionId,
+            type: 'run.created'
+          });
+
+          sessionEventService.append({
             message,
-            run: triggeredRun
-          },
-          runId: triggeredRun.id
-        };
+            sessionId: input.sessionId,
+            type: 'message.created'
+          });
+
+          const updatedSession = sessionService.updateSessionRuntimeState({
+            lastErrorText: null,
+            sessionId: input.sessionId,
+            status: 'executing'
+          });
+
+          if (updatedSession) {
+            sessionEventService.append({
+              sessionId: updatedSession.id,
+              runId: run.id,
+              type: 'session.updated',
+              updatedAt: updatedSession.updatedAt
+            });
+          }
+
+          return {
+            ctx: {
+              accepted: true as const,
+              message,
+              run: triggeredRun
+            },
+            runId: triggeredRun.id
+          };
+        });
       },
       async (ctx, signal) => {
         await this.runtimeLifecycle.startPromptRun({
@@ -140,69 +158,128 @@ export class SessionInteractionService {
       throw new ServiceError('Approval is missing run id.', 409);
     }
 
-    sessionResumeService.assertApprovalResumeReady({ approval, toolCall });
+    const resume = sessionResumeService.assertApprovalResumeReady({
+      approval,
+      toolCall
+    });
 
-    const response = await this.runner.ensureRunning(
+    const response = await this.runner.ensureRunning<ResolveApprovalContext>(
       approval.sessionId,
       async () => {
-        const now = new Date().toISOString();
-        const runningRun = agentRunService.markRunning({ runId });
+        return Database.transaction(() => {
+          const now = new Date().toISOString();
+          const runningRun = agentRunService.markRunning({ runId });
 
-        if (!runningRun) {
-          throw new ServiceError('Run is no longer waiting for approval.', 409);
-        }
+          if (!runningRun) {
+            throw new ServiceError(
+              'Run is no longer waiting for approval.',
+              409
+            );
+          }
 
-        const updatedApproval = approvalRepository.updateDecision({
-          decidedAt: now,
-          id: approval.id,
-          status: input.decision
-        });
-        const updatedToolCall = toolCall;
+          const updatedApproval = approvalRepository.updateDecision({
+            decidedAt: now,
+            id: approval.id,
+            status: input.decision
+          });
 
-        if (!updatedApproval) {
-          throw new ServiceError('Failed to persist approval decision.', 500);
-        }
+          if (!updatedApproval) {
+            throw new ServiceError('Failed to persist approval decision.', 500);
+          }
 
-        const updatedSession = sessionService.updateSessionRuntimeState({
-          lastCheckpoint: null,
-          lastErrorText: null,
-          sessionId: approval.sessionId,
-          status: 'executing'
-        });
+          const updatedToolCall =
+            input.decision === 'rejected'
+              ? toolStateService.updateToolPartWithToolCall({
+                  part: {
+                    ...resume.part,
+                    state: {
+                      completedAt: now,
+                      errorText: 'Approval rejected by user',
+                      input: resume.part.state.input,
+                      payload: { ok: false, rejected: true },
+                      reason: 'execution_denied',
+                      status: 'error'
+                    }
+                  },
+                  toolCall: {
+                    completedAt: now,
+                    errorText: 'Approval rejected by user',
+                    id: resume.part.toolCallId,
+                    result: { ok: false, rejected: true },
+                    status: 'failed',
+                    updatedAt: now
+                  }
+                }).toolCall
+              : toolCall;
 
-        sessionEventService.append({
-          approvalId: updatedApproval.id,
-          decision: input.decision,
-          runId,
-          sessionId: approval.sessionId,
-          type: 'approval.resolved'
-        });
+          const updatedSession = sessionService.updateSessionRuntimeState({
+            lastCheckpoint: null,
+            lastErrorText: null,
+            sessionId: approval.sessionId,
+            status: 'executing'
+          });
 
-        if (updatedSession) {
           sessionEventService.append({
+            approvalId: updatedApproval.id,
+            decision: input.decision,
             runId,
             sessionId: approval.sessionId,
-            type: 'session.updated',
-            updatedAt: updatedSession.updatedAt
+            type: 'approval.resolved'
           });
-        }
 
-        return {
-          ctx: {
-            approval: updatedApproval,
-            runId,
-            toolCall: updatedToolCall
-          },
-          runId
-        };
+          if (input.decision === 'rejected') {
+            sessionEventService.append({
+              error: 'Approval rejected by user',
+              runId,
+              sessionId: approval.sessionId,
+              toolCallId: resume.part.toolCallId,
+              type: 'tool.failed'
+            });
+          }
+
+          if (updatedSession) {
+            sessionEventService.append({
+              runId,
+              sessionId: approval.sessionId,
+              type: 'session.updated',
+              updatedAt: updatedSession.updatedAt
+            });
+          }
+
+          return {
+            ctx: {
+              approval: updatedApproval,
+              ...(input.decision === 'approved' ? { part: resume.part } : {}),
+              runId,
+              toolCall: updatedToolCall
+            },
+            runId
+          };
+        });
       },
       async (ctx, signal) => {
-        await this.runtimeLifecycle.resumeApprovalRun({
-          approval,
+        if (input.decision === 'rejected') {
+          await this.runtimeLifecycle.startPromptRun({
+            runId: ctx.runId,
+            sessionId: approval.sessionId,
+            signal
+          });
+          return;
+        }
+
+        if (!('part' in ctx)) {
+          throw new ServiceError(
+            'Approval part is missing for approved tool.',
+            500
+          );
+        }
+
+        await this.runtimeLifecycle.continueApprovalRun({
           decision: input.decision,
+          part: ctx.part,
           runId: ctx.runId,
-          signal,
-          toolCall: ctx.toolCall
+          sessionId: approval.sessionId,
+          signal
         });
       }
     );

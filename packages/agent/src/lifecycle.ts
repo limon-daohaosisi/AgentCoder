@@ -2,6 +2,7 @@ import type {
   AgentRunDto,
   ApprovalDto,
   MessagePart,
+  SessionCheckpoint,
   SessionDto,
   SessionEvent,
   SessionStatus,
@@ -25,8 +26,38 @@ type MarkRunInput = {
   runId: string;
 };
 
+type FinalizeRunStateInput =
+  | {
+      checkpoint?: never;
+      errorText?: null | string;
+      reason: 'blocked' | 'cancelled' | 'completed' | 'failed';
+      runId: string;
+      sessionId: string;
+      sessionStatus: Extract<SessionStatus, 'blocked' | 'idle'>;
+    }
+  | {
+      checkpoint: string;
+      errorText?: null | string;
+      reason: 'waiting_approval';
+      runId: string;
+      sessionId: string;
+      sessionStatus: 'waiting_approval';
+    };
+
+type PauseForApprovalInput = {
+  approval: ApprovalDto;
+  checkpoint: SessionCheckpoint;
+  runId: string;
+  sessionId: string;
+  toolCall: ToolCallDto;
+};
+
 export type LifecycleDeps = {
   appendSessionEvent(event: SessionEvent): unknown;
+  finalizeRunState(input: FinalizeRunStateInput): {
+    run: AgentRunDto | null;
+    session: SessionDto | null;
+  };
   getMessagePart(partId: string): MessagePart | null;
   getSession(sessionId: string): SessionDto | null;
   getWorkspaceRootPath(sessionId: string): string;
@@ -41,6 +72,7 @@ export type LifecycleDeps = {
   markRunWaitingApproval(
     input: MarkRunInput & { lastCheckpoint: string }
   ): AgentRunDto | null;
+  pauseForApproval(input: PauseForApprovalInput): unknown;
   toolExecutor: Pick<ToolExecutor, 'executeApprovedPart'>;
   updateSessionRuntimeState(
     input: UpdateSessionRuntimeStateInput
@@ -56,9 +88,18 @@ type StartPromptRunInput = {
 type ResumeApprovalRunInput = {
   approval: ApprovalDto;
   decision: 'approved' | 'rejected';
+  part?: Extract<MessagePart, { type: 'tool' }>;
   runId: string;
   signal: AbortSignal;
   toolCall: ToolCallDto;
+};
+
+type ContinueApprovalRunInput = {
+  decision: 'approved' | 'rejected';
+  part: Extract<MessagePart, { type: 'tool' }>;
+  runId: string;
+  sessionId: string;
+  signal: AbortSignal;
 };
 
 export type LifecycleTerminalReason = RunLoopResult['kind'] | 'failed';
@@ -81,55 +122,43 @@ export class Lifecycle {
     input: ResumeApprovalRunInput
   ): Promise<LifecycleResult> {
     try {
-      const session = this.deps.getSession(input.approval.sessionId);
+      const part = input.part ?? this.resolveApprovalPart(input);
 
-      if (!session) {
-        throw new Error(`Session not found: ${input.approval.sessionId}`);
-      }
-
-      const checkpoint = parseSessionCheckpoint(session.lastCheckpointJson);
-
-      const part = checkpoint?.partId
-        ? this.deps.getMessagePart(checkpoint.partId)
-        : null;
-      const resumeValidation = validateApprovalResume({
-        approval: input.approval,
-        checkpoint,
+      return await this.continueApprovalRun({
+        decision: input.decision,
         part,
-        session,
-        toolCall: input.toolCall
+        runId: input.runId,
+        sessionId: input.approval.sessionId,
+        signal: input.signal
       });
+    } catch (error) {
+      return this.handleFailure(input.approval.sessionId, input.runId, error);
+    }
+  }
 
-      if (!resumeValidation.ok) {
-        throw new Error(resumeValidation.reason);
-      }
-
+  async continueApprovalRun(
+    input: ContinueApprovalRunInput
+  ): Promise<LifecycleResult> {
+    try {
       await this.deps.toolExecutor.executeApprovedPart({
         decision: input.decision,
-        part: resumeValidation.context.part,
+        part: input.part,
         runId: input.runId,
         signal: input.signal,
-        sessionId: input.approval.sessionId,
-        workspaceRoot: this.deps.getWorkspaceRootPath(input.approval.sessionId)
-      });
-
-      this.deps.updateSessionRuntimeState({
-        lastCheckpoint: null,
-        lastErrorText: null,
-        sessionId: input.approval.sessionId,
-        status: 'executing'
+        sessionId: input.sessionId,
+        workspaceRoot: this.deps.getWorkspaceRootPath(input.sessionId)
       });
 
       const result = await this.loop.run({
         runId: input.runId,
         signal: input.signal,
-        sessionId: input.approval.sessionId,
-        workspaceRoot: this.deps.getWorkspaceRootPath(input.approval.sessionId)
+        sessionId: input.sessionId,
+        workspaceRoot: this.deps.getWorkspaceRootPath(input.sessionId)
       });
 
-      return this.handleResult(input.approval.sessionId, input.runId, result);
+      return this.handleResult(input.sessionId, input.runId, result);
     } catch (error) {
-      return this.handleFailure(input.approval.sessionId, input.runId, error);
+      return this.handleFailure(input.sessionId, input.runId, error);
     }
   }
 
@@ -161,98 +190,50 @@ export class Lifecycle {
   ): LifecycleResult {
     switch (result.kind) {
       case 'completed': {
-        const run = this.deps.markRunCompleted({ runId });
-        const updatedSession = this.deps.updateSessionRuntimeState({
-          lastCheckpoint: null,
-          lastErrorText: null,
+        this.deps.finalizeRunState({
+          reason: 'completed',
+          runId,
           sessionId,
-          status: 'idle'
+          sessionStatus: 'idle'
         });
-
-        if (run) {
-          this.deps.appendSessionEvent({
-            run,
-            sessionId,
-            type: 'run.completed'
-          });
-        }
-
-        this.appendSessionUpdated(updatedSession, runId);
         return { reason: result.kind };
       }
       case 'paused_for_approval': {
+        if (!result.checkpoint || !result.approval || !result.toolCall) {
+          throw new Error('Approval pause is missing checkpoint state.');
+        }
+
         const checkpoint =
           typeof result.checkpoint === 'string'
             ? result.checkpoint
             : JSON.stringify(result.checkpoint);
-        const run = this.deps.markRunWaitingApproval({
-          lastCheckpoint: checkpoint,
-          runId
-        });
-        const updatedSession = this.deps.updateSessionRuntimeState({
-          lastCheckpoint: checkpoint,
-          lastErrorText: null,
+        this.deps.pauseForApproval({
+          approval: result.approval,
+          checkpoint: result.checkpoint,
+          runId,
           sessionId,
-          status: 'waiting_approval'
+          toolCall: result.toolCall
         });
-
-        if (run) {
-          this.deps.appendSessionEvent({
-            checkpoint,
-            runId,
-            sessionId,
-            type: 'session.resumable'
-          });
-        }
-
-        this.appendSessionUpdated(updatedSession, runId);
         return { reason: result.kind };
       }
       case 'cancelled': {
-        const run = this.deps.markRunCancelled({
+        this.deps.finalizeRunState({
           errorText: result.reason,
-          runId
-        });
-        const updatedSession = this.deps.updateSessionRuntimeState({
-          lastCheckpoint: null,
-          lastErrorText: null,
+          reason: 'cancelled',
+          runId,
           sessionId,
-          status: 'idle'
+          sessionStatus: 'idle'
         });
-
-        if (run) {
-          this.deps.appendSessionEvent({
-            reason: result.reason,
-            run,
-            sessionId,
-            type: 'run.cancelled'
-          });
-        }
-
-        this.appendSessionUpdated(updatedSession, runId);
         return { reason: result.kind };
       }
       case 'context_too_large': {
-        const run = this.deps.markRunBlocked({
+        this.deps.finalizeRunState({
           errorText: result.error,
-          runId
-        });
-        const updatedSession = this.deps.updateSessionRuntimeState({
-          lastErrorText: result.error,
+          reason: 'blocked',
+          runId,
           sessionId,
-          status: 'blocked'
+          sessionStatus: 'blocked'
         });
-
-        if (run) {
-          this.deps.appendSessionEvent({
-            error: result.error,
-            run,
-            sessionId,
-            type: 'run.blocked'
-          });
-        }
-
-        this.appendSessionUpdated(updatedSession, runId);
         return { reason: result.kind };
       }
       case 'failed':
@@ -272,42 +253,42 @@ export class Lifecycle {
     error: unknown
   ): LifecycleResult {
     const errorMessage = formatError(error);
-    const run = this.deps.markRunFailed({
+    this.deps.finalizeRunState({
       errorText: errorMessage,
-      runId
-    });
-    const updatedSession = this.deps.updateSessionRuntimeState({
-      lastCheckpoint: null,
-      lastErrorText: errorMessage,
+      reason: 'failed',
+      runId,
       sessionId,
-      status: 'idle'
+      sessionStatus: 'idle'
     });
-
-    if (run) {
-      this.deps.appendSessionEvent({
-        error: errorMessage,
-        run,
-        sessionId,
-        type: 'run.failed'
-      });
-    }
-
-    this.appendSessionUpdated(updatedSession, runId);
 
     return { reason: 'failed' };
   }
 
-  private appendSessionUpdated(
-    session: SessionDto | null,
-    runId?: string
-  ): void {
-    if (session) {
-      this.deps.appendSessionEvent({
-        runId,
-        sessionId: session.id,
-        type: 'session.updated',
-        updatedAt: session.updatedAt
-      });
+  private resolveApprovalPart(
+    input: ResumeApprovalRunInput
+  ): Extract<MessagePart, { type: 'tool' }> {
+    const session = this.deps.getSession(input.approval.sessionId);
+
+    if (!session) {
+      throw new Error(`Session not found: ${input.approval.sessionId}`);
     }
+
+    const checkpoint = parseSessionCheckpoint(session.lastCheckpointJson);
+    const part = checkpoint?.partId
+      ? this.deps.getMessagePart(checkpoint.partId)
+      : null;
+    const resumeValidation = validateApprovalResume({
+      approval: input.approval,
+      checkpoint,
+      part,
+      session,
+      toolCall: input.toolCall
+    });
+
+    if (!resumeValidation.ok) {
+      throw new Error(resumeValidation.reason);
+    }
+
+    return resumeValidation.context.part;
   }
 }

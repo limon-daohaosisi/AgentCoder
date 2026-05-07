@@ -33,7 +33,7 @@ import type {
   ToolCallStatus
 } from '@opencode/shared';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { Database } from '../db/runtime.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
 const openRunStatuses: AgentRunStatus[] = ['running', 'waiting_approval'];
@@ -260,61 +260,69 @@ function mapApprovalRow(row: ApprovalRow): ApprovalDto {
 }
 
 function listRunningMessagesByRun(runId: string): MessageDto[] {
-  return db
-    .select()
-    .from(messages)
-    .where(
-      and(
-        eq(messages.runId, runId),
-        eq(messages.role, 'assistant'),
-        eq(messages.status, 'running')
+  return Database.use((db) =>
+    db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.runId, runId),
+          eq(messages.role, 'assistant'),
+          eq(messages.status, 'running')
+        )
       )
-    )
-    .orderBy(asc(messages.createdAt), asc(messages.id))
-    .all()
-    .map(mapMessageRow);
+      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .all()
+      .map(mapMessageRow)
+  );
 }
 
 function listOpenToolPartsByRun(
   runId: string
 ): Extract<MessagePart, { type: 'tool' }>[] {
-  return db
-    .select()
-    .from(messageParts)
-    .where(and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool')))
-    .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
-    .all()
-    .map(mapMessagePartRow)
-    .filter(
-      (part): part is Extract<MessagePart, { type: 'tool' }> =>
-        part.type === 'tool' &&
-        (part.state.status === 'pending' || part.state.status === 'running')
-    );
+  return Database.use((db) =>
+    db
+      .select()
+      .from(messageParts)
+      .where(and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool')))
+      .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
+      .all()
+      .map(mapMessagePartRow)
+      .filter(
+        (part): part is Extract<MessagePart, { type: 'tool' }> =>
+          part.type === 'tool' &&
+          (part.state.status === 'pending' || part.state.status === 'running')
+      )
+  );
 }
 
 function listOpenToolCallsByRun(runId: string): ToolCallDto[] {
-  return db
-    .select()
-    .from(toolCalls)
-    .where(
-      and(
-        eq(toolCalls.runId, runId),
-        inArray(toolCalls.status, openToolCallStatuses)
+  return Database.use((db) =>
+    db
+      .select()
+      .from(toolCalls)
+      .where(
+        and(
+          eq(toolCalls.runId, runId),
+          inArray(toolCalls.status, openToolCallStatuses)
+        )
       )
-    )
-    .orderBy(asc(toolCalls.createdAt), asc(toolCalls.id))
-    .all()
-    .map(mapToolCallRow);
+      .orderBy(asc(toolCalls.createdAt), asc(toolCalls.id))
+      .all()
+      .map(mapToolCallRow)
+  );
 }
 
 function listPendingApprovalsByRun(runId: string): ApprovalDto[] {
-  return db
-    .select()
-    .from(approvals)
-    .where(and(eq(approvals.runId, runId), eq(approvals.status, 'pending')))
-    .orderBy(asc(approvals.createdAt), asc(approvals.id))
-    .all()
-    .map(mapApprovalRow);
+  return Database.use((db) =>
+    db
+      .select()
+      .from(approvals)
+      .where(and(eq(approvals.runId, runId), eq(approvals.status, 'pending')))
+      .orderBy(asc(approvals.createdAt), asc(approvals.id))
+      .all()
+      .map(mapApprovalRow)
+  );
 }
 
 function appendRecoveredEvent(input: {
@@ -340,22 +348,67 @@ function appendRecoveredEvent(input: {
   };
 }
 
+function appendRecoveryEvent(
+  envelopes: SessionEventEnvelope[],
+  input: AppendRecoveryEventInput
+): SessionEventEnvelope {
+  return Database.use((db) => {
+    const previous = db
+      .select({ sequenceNo: sessionEvents.sequenceNo })
+      .from(sessionEvents)
+      .where(eq(sessionEvents.sessionId, input.sessionId))
+      .orderBy(desc(sessionEvents.sequenceNo))
+      .get();
+    const sequenceNo = (previous?.sequenceNo ?? 0) + 1;
+
+    db.insert(sessionEvents)
+      .values({
+        createdAt: input.createdAt,
+        detailText: input.detailText ?? null,
+        entityId: input.entityId ?? null,
+        entityType: input.entityType ?? null,
+        headline: input.headline ?? null,
+        id: `${input.sessionId}:${sequenceNo}`,
+        level: input.level ?? 'info',
+        payloadJson: stringifyJsonValue(input.event),
+        runId: input.runId ?? null,
+        sequenceNo,
+        sessionId: input.sessionId,
+        taskId: null,
+        type: input.event.type
+      })
+      .run();
+
+    const envelope = {
+      createdAt: input.createdAt,
+      event: input.event,
+      sequenceNo
+    };
+    envelopes.push(envelope);
+    return envelope;
+  });
+}
+
 export const sessionRecoveryRepository = {
   listSessionsWithOpenRuns(): StartupRecoverySessionCandidate[] {
-    const runs = db
-      .select()
-      .from(agentRuns)
-      .where(inArray(agentRuns.status, openRunStatuses))
-      .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
-      .all();
+    const runs = Database.use((db) =>
+      db
+        .select()
+        .from(agentRuns)
+        .where(inArray(agentRuns.status, openRunStatuses))
+        .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
+        .all()
+    );
     const candidates = new Map<string, StartupRecoverySessionCandidate>();
 
     for (const runRow of runs) {
-      const sessionRow = db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, runRow.sessionId))
-        .get();
+      const sessionRow = Database.use((db) =>
+        db
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, runRow.sessionId))
+          .get()
+      );
 
       if (!sessionRow) {
         continue;
@@ -383,895 +436,761 @@ export const sessionRecoveryRepository = {
 
   listStaleExecutingSessions(): SessionDto[] {
     const openSessionIds = new Set(
-      db
-        .select({ sessionId: agentRuns.sessionId })
-        .from(agentRuns)
-        .where(inArray(agentRuns.status, openRunStatuses))
-        .all()
-        .map((row) => row.sessionId)
+      Database.use((db) =>
+        db
+          .select({ sessionId: agentRuns.sessionId })
+          .from(agentRuns)
+          .where(inArray(agentRuns.status, openRunStatuses))
+          .all()
+          .map((row) => row.sessionId)
+      )
     );
 
-    return db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.status, 'executing'))
-      .orderBy(desc(sessions.updatedAt), desc(sessions.id))
-      .all()
-      .filter((session) => !openSessionIds.has(session.id))
-      .map(mapSessionRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.status, 'executing'))
+        .orderBy(desc(sessions.updatedAt), desc(sessions.id))
+        .all()
+        .filter((session) => !openSessionIds.has(session.id))
+        .map(mapSessionRow)
+    );
   },
 
   listStaleWaitingApprovalSessions(): SessionDto[] {
     const openSessionIds = new Set(
-      db
-        .select({ sessionId: agentRuns.sessionId })
-        .from(agentRuns)
-        .where(inArray(agentRuns.status, openRunStatuses))
-        .all()
-        .map((row) => row.sessionId)
+      Database.use((db) =>
+        db
+          .select({ sessionId: agentRuns.sessionId })
+          .from(agentRuns)
+          .where(inArray(agentRuns.status, openRunStatuses))
+          .all()
+          .map((row) => row.sessionId)
+      )
     );
 
-    return db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.status, 'waiting_approval'))
-      .orderBy(desc(sessions.updatedAt), desc(sessions.id))
-      .all()
-      .filter((session) => !openSessionIds.has(session.id))
-      .map(mapSessionRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.status, 'waiting_approval'))
+        .orderBy(desc(sessions.updatedAt), desc(sessions.id))
+        .all()
+        .filter((session) => !openSessionIds.has(session.id))
+        .map(mapSessionRow)
+    );
   },
 
   recoverInterruptedRuns(
     input: RecoverInterruptedRunsInput
   ): RecoveryWriteResult {
-    return db.transaction((tx) => {
-      const envelopes: SessionEventEnvelope[] = [];
-      const blockedRuns: AgentRunDto[] = [];
+    return Database.transaction(() => {
+      return Database.use((db) => {
+        const envelopes: SessionEventEnvelope[] = [];
+        const blockedRuns: AgentRunDto[] = [];
 
-      const appendEvent = (
-        eventInput: AppendRecoveryEventInput
-      ): SessionEventEnvelope => {
-        const previous = tx
-          .select({ sequenceNo: sessionEvents.sequenceNo })
-          .from(sessionEvents)
-          .where(eq(sessionEvents.sessionId, eventInput.sessionId))
-          .orderBy(desc(sessionEvents.sequenceNo))
-          .get();
-        const sequenceNo = (previous?.sequenceNo ?? 0) + 1;
-
-        tx.insert(sessionEvents)
-          .values({
-            createdAt: eventInput.createdAt,
-            detailText: eventInput.detailText ?? null,
-            entityId: eventInput.entityId ?? null,
-            entityType: eventInput.entityType ?? null,
-            headline: eventInput.headline ?? null,
-            id: `${eventInput.sessionId}:${sequenceNo}`,
-            level: eventInput.level ?? 'info',
-            payloadJson: stringifyJsonValue(eventInput.event),
-            runId: eventInput.runId ?? null,
-            sequenceNo,
-            sessionId: eventInput.sessionId,
-            taskId: null,
-            type: eventInput.event.type
-          })
-          .run();
-
-        const envelope = {
-          createdAt: eventInput.createdAt,
-          event: eventInput.event,
-          sequenceNo
-        };
-        envelopes.push(envelope);
-        return envelope;
-      };
-
-      for (const runId of input.interruptedRunIds) {
-        const runRow = tx
-          .update(agentRuns)
-          .set({
-            endedAt: input.recoveredAt,
-            errorText: input.errorText,
-            lastCheckpointJson: null,
-            status: 'blocked',
-            updatedAt: input.recoveredAt
-          })
-          .where(
-            and(
-              eq(agentRuns.id, runId),
-              inArray(agentRuns.status, openRunStatuses)
-            )
-          )
-          .returning()
-          .get();
-        const run = runRow ? mapAgentRunRow(runRow) : null;
-
-        if (run) {
-          blockedRuns.push(run);
-        }
-
-        const rejectedApprovalRows = tx
-          .update(approvals)
-          .set({
-            decidedAt: input.recoveredAt,
-            decisionReasonText: input.errorText,
-            status: 'rejected'
-          })
-          .where(
-            and(eq(approvals.runId, runId), eq(approvals.status, 'pending'))
-          )
-          .returning()
-          .all();
-
-        for (const approvalRow of rejectedApprovalRows) {
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: 'rejected',
-            entityId: approvalRow.id,
-            entityType: 'approval',
-            event: {
-              approvalId: approvalRow.id,
-              decision: 'rejected',
-              runId,
-              sessionId: approvalRow.sessionId,
-              type: 'approval.resolved'
-            },
-            headline: 'Approval resolved',
-            runId,
-            sessionId: approvalRow.sessionId
-          });
-        }
-
-        const cancelledMessageRows = tx
-          .update(messages)
-          .set({
-            errorText: null,
-            finishReason: 'cancelled',
-            status: 'cancelled',
-            updatedAt: input.recoveredAt
-          })
-          .where(
-            and(
-              eq(messages.runId, runId),
-              eq(messages.role, 'assistant'),
-              eq(messages.status, 'running')
-            )
-          )
-          .returning()
-          .all();
-
-        for (const messageRow of cancelledMessageRows) {
-          appendEvent({
-            createdAt: input.recoveredAt,
-            entityId: messageRow.id,
-            entityType: 'message',
-            event: {
-              messageId: messageRow.id,
-              runId,
-              sessionId: messageRow.sessionId,
-              type: 'message.cancelled'
-            },
-            headline: 'Message cancelled',
-            runId,
-            sessionId: messageRow.sessionId
-          });
-        }
-
-        const toolFailedByPart = new Set<string>();
-        const toolPartRows = tx
-          .select()
-          .from(messageParts)
-          .where(
-            and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool'))
-          )
-          .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
-          .all();
-
-        for (const toolPartRow of toolPartRows) {
-          const toolPart = mapMessagePartRow(toolPartRow);
-
-          if (
-            toolPart.type !== 'tool' ||
-            (toolPart.state.status !== 'pending' &&
-              toolPart.state.status !== 'running')
-          ) {
-            continue;
-          }
-
-          const interruptedPart: Extract<MessagePart, { type: 'tool' }> = {
-            ...toolPart,
-            state: {
-              completedAt: input.recoveredAt,
-              errorText: input.errorText,
-              input: toolPart.state.input,
-              payload: { error: input.errorText, ok: false },
-              reason: 'interrupted',
-              startedAt:
-                toolPart.state.status === 'running'
-                  ? toolPart.state.startedAt
-                  : undefined,
-              status: 'error'
-            },
-            updatedAt: input.recoveredAt
-          };
-
-          tx.update(messageParts)
+        for (const runId of input.interruptedRunIds) {
+          const runRow = db
+            .update(agentRuns)
             .set({
-              dataJson: stringifyJsonValue(interruptedPart),
+              endedAt: input.recoveredAt,
+              errorText: input.errorText,
+              lastCheckpointJson: null,
+              status: 'blocked',
               updatedAt: input.recoveredAt
             })
-            .where(eq(messageParts.id, interruptedPart.id))
-            .run();
-
-          toolFailedByPart.add(interruptedPart.toolCallId);
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: input.errorText,
-            entityId: interruptedPart.toolCallId,
-            entityType: 'tool_call',
-            event: {
-              error: input.errorText,
-              runId,
-              sessionId: interruptedPart.sessionId,
-              toolCallId: interruptedPart.toolCallId,
-              type: 'tool.failed'
-            },
-            headline: 'Tool failed',
-            level: 'error',
-            runId,
-            sessionId: interruptedPart.sessionId
-          });
-        }
-
-        const failedToolCallRows = tx
-          .update(toolCalls)
-          .set({
-            completedAt: input.recoveredAt,
-            errorText: input.errorText,
-            resultJson: stringifyJsonValue({
-              error: input.errorText,
-              ok: false
-            }),
-            status: 'failed',
-            updatedAt: input.recoveredAt
-          })
-          .where(
-            and(
-              eq(toolCalls.runId, runId),
-              inArray(toolCalls.status, openToolCallStatuses)
+            .where(
+              and(
+                eq(agentRuns.id, runId),
+                inArray(agentRuns.status, openRunStatuses)
+              )
             )
-          )
-          .returning()
-          .all();
+            .returning()
+            .get();
+          const run = runRow ? mapAgentRunRow(runRow) : null;
 
-        for (const toolCallRow of failedToolCallRows) {
-          if (toolFailedByPart.has(toolCallRow.id)) {
-            continue;
+          if (run) {
+            blockedRuns.push(run);
           }
 
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: input.errorText,
-            entityId: toolCallRow.id,
-            entityType: 'tool_call',
-            event: {
-              error: input.errorText,
+          const rejectedApprovalRows = db
+            .update(approvals)
+            .set({
+              decidedAt: input.recoveredAt,
+              decisionReasonText: input.errorText,
+              status: 'rejected'
+            })
+            .where(
+              and(eq(approvals.runId, runId), eq(approvals.status, 'pending'))
+            )
+            .returning()
+            .all();
+
+          for (const approvalRow of rejectedApprovalRows) {
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: 'rejected',
+              entityId: approvalRow.id,
+              entityType: 'approval',
+              event: {
+                approvalId: approvalRow.id,
+                decision: 'rejected',
+                runId,
+                sessionId: approvalRow.sessionId,
+                type: 'approval.resolved'
+              },
+              headline: 'Approval resolved',
               runId,
-              sessionId: toolCallRow.sessionId,
-              toolCallId: toolCallRow.id,
-              type: 'tool.failed'
-            },
-            headline: 'Tool failed',
-            level: 'error',
-            runId,
-            sessionId: toolCallRow.sessionId
-          });
+              sessionId: approvalRow.sessionId
+            });
+          }
+
+          const cancelledMessageRows = db
+            .update(messages)
+            .set({
+              errorText: null,
+              finishReason: 'cancelled',
+              status: 'cancelled',
+              updatedAt: input.recoveredAt
+            })
+            .where(
+              and(
+                eq(messages.runId, runId),
+                eq(messages.role, 'assistant'),
+                eq(messages.status, 'running')
+              )
+            )
+            .returning()
+            .all();
+
+          for (const messageRow of cancelledMessageRows) {
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              entityId: messageRow.id,
+              entityType: 'message',
+              event: {
+                messageId: messageRow.id,
+                runId,
+                sessionId: messageRow.sessionId,
+                type: 'message.cancelled'
+              },
+              headline: 'Message cancelled',
+              runId,
+              sessionId: messageRow.sessionId
+            });
+          }
+
+          const toolFailedByPart = new Set<string>();
+          const toolPartRows = db
+            .select()
+            .from(messageParts)
+            .where(
+              and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool'))
+            )
+            .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
+            .all();
+
+          for (const toolPartRow of toolPartRows) {
+            const toolPart = mapMessagePartRow(toolPartRow);
+
+            if (
+              toolPart.type !== 'tool' ||
+              (toolPart.state.status !== 'pending' &&
+                toolPart.state.status !== 'running')
+            ) {
+              continue;
+            }
+
+            const interruptedPart: Extract<MessagePart, { type: 'tool' }> = {
+              ...toolPart,
+              state: {
+                completedAt: input.recoveredAt,
+                errorText: input.errorText,
+                input: toolPart.state.input,
+                payload: { error: input.errorText, ok: false },
+                reason: 'interrupted',
+                startedAt:
+                  toolPart.state.status === 'running'
+                    ? toolPart.state.startedAt
+                    : undefined,
+                status: 'error'
+              },
+              updatedAt: input.recoveredAt
+            };
+
+            db.update(messageParts)
+              .set({
+                dataJson: stringifyJsonValue(interruptedPart),
+                updatedAt: input.recoveredAt
+              })
+              .where(eq(messageParts.id, interruptedPart.id))
+              .run();
+
+            toolFailedByPart.add(interruptedPart.toolCallId);
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: input.errorText,
+              entityId: interruptedPart.toolCallId,
+              entityType: 'tool_call',
+              event: {
+                error: input.errorText,
+                runId,
+                sessionId: interruptedPart.sessionId,
+                toolCallId: interruptedPart.toolCallId,
+                type: 'tool.failed'
+              },
+              headline: 'Tool failed',
+              level: 'error',
+              runId,
+              sessionId: interruptedPart.sessionId
+            });
+          }
+
+          const failedToolCallRows = db
+            .update(toolCalls)
+            .set({
+              completedAt: input.recoveredAt,
+              errorText: input.errorText,
+              resultJson: stringifyJsonValue({
+                error: input.errorText,
+                ok: false
+              }),
+              status: 'failed',
+              updatedAt: input.recoveredAt
+            })
+            .where(
+              and(
+                eq(toolCalls.runId, runId),
+                inArray(toolCalls.status, openToolCallStatuses)
+              )
+            )
+            .returning()
+            .all();
+
+          for (const toolCallRow of failedToolCallRows) {
+            if (toolFailedByPart.has(toolCallRow.id)) {
+              continue;
+            }
+
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: input.errorText,
+              entityId: toolCallRow.id,
+              entityType: 'tool_call',
+              event: {
+                error: input.errorText,
+                runId,
+                sessionId: toolCallRow.sessionId,
+                toolCallId: toolCallRow.id,
+                type: 'tool.failed'
+              },
+              headline: 'Tool failed',
+              level: 'error',
+              runId,
+              sessionId: toolCallRow.sessionId
+            });
+          }
+
+          if (run) {
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: input.errorText,
+              entityId: run.id,
+              entityType: 'agent_run',
+              event: {
+                error: input.errorText,
+                run,
+                sessionId: input.sessionId,
+                type: 'run.blocked'
+              },
+              headline: 'Run blocked',
+              level: 'warning',
+              runId: run.id,
+              sessionId: input.sessionId
+            });
+          }
         }
 
-        if (run) {
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: input.errorText,
-            entityId: run.id,
-            entityType: 'agent_run',
-            event: {
-              error: input.errorText,
-              run,
-              sessionId: input.sessionId,
-              type: 'run.blocked'
-            },
-            headline: 'Run blocked',
-            level: 'warning',
-            runId: run.id,
-            sessionId: input.sessionId
-          });
+        const sessionChanges: {
+          lastCheckpointJson?: null;
+          lastErrorText: string;
+          status: SessionStatus;
+          updatedAt: string;
+        } = {
+          lastErrorText: input.errorText,
+          status: input.sessionStatus,
+          updatedAt: input.recoveredAt
+        };
+
+        if (input.clearSessionCheckpoint) {
+          sessionChanges.lastCheckpointJson = null;
         }
-      }
 
-      const sessionChanges: {
-        lastCheckpointJson?: null;
-        lastErrorText: string;
-        status: SessionStatus;
-        updatedAt: string;
-      } = {
-        lastErrorText: input.errorText,
-        status: input.sessionStatus,
-        updatedAt: input.recoveredAt
-      };
+        const sessionRow = db
+          .update(sessions)
+          .set(sessionChanges)
+          .where(eq(sessions.id, input.sessionId))
+          .returning()
+          .get();
+        const session = sessionRow ? mapSessionRow(sessionRow) : null;
 
-      if (input.clearSessionCheckpoint) {
-        sessionChanges.lastCheckpointJson = null;
-      }
-
-      const sessionRow = tx
-        .update(sessions)
-        .set(sessionChanges)
-        .where(eq(sessions.id, input.sessionId))
-        .returning()
-        .get();
-      const session = sessionRow ? mapSessionRow(sessionRow) : null;
-
-      appendEvent({
-        createdAt: input.recoveredAt,
-        detailText: input.diagnostics.join('; ') || input.errorText,
-        entityId: input.sessionId,
-        entityType: 'session',
-        event: appendRecoveredEvent({
-          diagnostics: input.diagnostics,
-          interruptedRunIds: input.interruptedRunIds,
-          keptWaitingApprovalRunIds: input.keptWaitingApprovalRunIds,
-          reason: input.reason,
-          recoveredAt: input.recoveredAt,
-          sessionId: input.sessionId
-        }),
-        headline: 'Session recovered',
-        level: 'warning',
-        sessionId: input.sessionId
-      });
-
-      if (session) {
-        appendEvent({
+        appendRecoveryEvent(envelopes, {
           createdAt: input.recoveredAt,
+          detailText: input.diagnostics.join('; ') || input.errorText,
           entityId: input.sessionId,
           entityType: 'session',
-          event: {
+          event: appendRecoveredEvent({
+            diagnostics: input.diagnostics,
+            interruptedRunIds: input.interruptedRunIds,
+            keptWaitingApprovalRunIds: input.keptWaitingApprovalRunIds,
+            reason: input.reason,
+            recoveredAt: input.recoveredAt,
+            sessionId: input.sessionId
+          }),
+          headline: 'Session recovered',
+          level: 'warning',
+          sessionId: input.sessionId
+        });
+
+        if (session) {
+          appendRecoveryEvent(envelopes, {
+            createdAt: input.recoveredAt,
+            entityId: input.sessionId,
+            entityType: 'session',
+            event: {
+              runId:
+                input.interruptedRunIds.length === 1
+                  ? input.interruptedRunIds[0]
+                  : undefined,
+              sessionId: input.sessionId,
+              type: 'session.updated',
+              updatedAt: session.updatedAt
+            },
+            headline: 'Session updated',
             runId:
               input.interruptedRunIds.length === 1
                 ? input.interruptedRunIds[0]
                 : undefined,
-            sessionId: input.sessionId,
-            type: 'session.updated',
-            updatedAt: session.updatedAt
-          },
-          headline: 'Session updated',
-          runId:
-            input.interruptedRunIds.length === 1
-              ? input.interruptedRunIds[0]
-              : undefined,
-          sessionId: input.sessionId
-        });
-      }
+            sessionId: input.sessionId
+          });
+        }
 
-      return { blockedRuns, envelopes, session };
+        return { blockedRuns, envelopes, session };
+      });
     });
   },
 
   blockInvalidWaitingApproval(
     input: BlockInvalidWaitingApprovalInput
   ): RecoveryWriteResult {
-    return db.transaction((tx) => {
-      const envelopes: SessionEventEnvelope[] = [];
-      const blockedRuns: AgentRunDto[] = [];
-      const clearCheckpointRunIds = new Set(input.clearCheckpointRunIds ?? []);
-      const interruptedRunIds = new Set(input.interruptedRunIds ?? []);
+    return Database.transaction(() => {
+      return Database.use((db) => {
+        const envelopes: SessionEventEnvelope[] = [];
+        const blockedRuns: AgentRunDto[] = [];
+        const clearCheckpointRunIds = new Set(
+          input.clearCheckpointRunIds ?? []
+        );
+        const interruptedRunIds = new Set(input.interruptedRunIds ?? []);
 
-      const appendEvent = (
-        eventInput: AppendRecoveryEventInput
-      ): SessionEventEnvelope => {
-        const previous = tx
-          .select({ sequenceNo: sessionEvents.sequenceNo })
-          .from(sessionEvents)
-          .where(eq(sessionEvents.sessionId, eventInput.sessionId))
-          .orderBy(desc(sessionEvents.sequenceNo))
-          .get();
-        const sequenceNo = (previous?.sequenceNo ?? 0) + 1;
+        for (const runId of input.blockedRunIds) {
+          const runChanges: {
+            endedAt: string;
+            errorText: string;
+            lastCheckpointJson?: null;
+            status: AgentRunStatus;
+            updatedAt: string;
+          } = {
+            endedAt: input.recoveredAt,
+            errorText: input.errorText,
+            status: 'blocked',
+            updatedAt: input.recoveredAt
+          };
 
-        tx.insert(sessionEvents)
-          .values({
-            createdAt: eventInput.createdAt,
-            detailText: eventInput.detailText ?? null,
-            entityId: eventInput.entityId ?? null,
-            entityType: eventInput.entityType ?? null,
-            headline: eventInput.headline ?? null,
-            id: `${eventInput.sessionId}:${sequenceNo}`,
-            level: eventInput.level ?? 'info',
-            payloadJson: stringifyJsonValue(eventInput.event),
-            runId: eventInput.runId ?? null,
-            sequenceNo,
-            sessionId: eventInput.sessionId,
-            taskId: null,
-            type: eventInput.event.type
-          })
-          .run();
+          if (clearCheckpointRunIds.has(runId)) {
+            runChanges.lastCheckpointJson = null;
+          }
 
-        const envelope = {
-          createdAt: eventInput.createdAt,
-          event: eventInput.event,
-          sequenceNo
-        };
-        envelopes.push(envelope);
-        return envelope;
-      };
+          const runRow = db
+            .update(agentRuns)
+            .set(runChanges)
+            .where(
+              and(
+                eq(agentRuns.id, runId),
+                inArray(agentRuns.status, openRunStatuses)
+              )
+            )
+            .returning()
+            .get();
+          const run = runRow ? mapAgentRunRow(runRow) : null;
 
-      for (const runId of input.blockedRunIds) {
-        const runChanges: {
-          endedAt: string;
-          errorText: string;
-          lastCheckpointJson?: null;
-          status: AgentRunStatus;
-          updatedAt: string;
-        } = {
-          endedAt: input.recoveredAt,
-          errorText: input.errorText,
-          status: 'blocked',
-          updatedAt: input.recoveredAt
-        };
+          if (run) {
+            blockedRuns.push(run);
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: input.errorText,
+              entityId: run.id,
+              entityType: 'agent_run',
+              event: {
+                error: input.errorText,
+                run,
+                sessionId: input.sessionId,
+                type: 'run.blocked'
+              },
+              headline: 'Run blocked',
+              level: 'warning',
+              runId: run.id,
+              sessionId: input.sessionId
+            });
+          }
 
-        if (clearCheckpointRunIds.has(runId)) {
-          runChanges.lastCheckpointJson = null;
+          if (!interruptedRunIds.has(runId)) {
+            continue;
+          }
+
+          const cancelledMessageRows = db
+            .update(messages)
+            .set({
+              errorText: null,
+              finishReason: 'cancelled',
+              status: 'cancelled',
+              updatedAt: input.recoveredAt
+            })
+            .where(
+              and(
+                eq(messages.runId, runId),
+                eq(messages.role, 'assistant'),
+                eq(messages.status, 'running')
+              )
+            )
+            .returning()
+            .all();
+
+          for (const messageRow of cancelledMessageRows) {
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              entityId: messageRow.id,
+              entityType: 'message',
+              event: {
+                messageId: messageRow.id,
+                runId,
+                sessionId: messageRow.sessionId,
+                type: 'message.cancelled'
+              },
+              headline: 'Message cancelled',
+              runId,
+              sessionId: messageRow.sessionId
+            });
+          }
+
+          const toolFailedByPart = new Set<string>();
+          const toolPartRows = db
+            .select()
+            .from(messageParts)
+            .where(
+              and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool'))
+            )
+            .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
+            .all();
+
+          for (const toolPartRow of toolPartRows) {
+            const toolPart = mapMessagePartRow(toolPartRow);
+
+            if (
+              toolPart.type !== 'tool' ||
+              (toolPart.state.status !== 'pending' &&
+                toolPart.state.status !== 'running')
+            ) {
+              continue;
+            }
+
+            const interruptedPart: Extract<MessagePart, { type: 'tool' }> = {
+              ...toolPart,
+              state: {
+                completedAt: input.recoveredAt,
+                errorText: input.errorText,
+                input: toolPart.state.input,
+                payload: { error: input.errorText, ok: false },
+                reason: 'interrupted',
+                startedAt:
+                  toolPart.state.status === 'running'
+                    ? toolPart.state.startedAt
+                    : undefined,
+                status: 'error'
+              },
+              updatedAt: input.recoveredAt
+            };
+
+            db.update(messageParts)
+              .set({
+                dataJson: stringifyJsonValue(interruptedPart),
+                updatedAt: input.recoveredAt
+              })
+              .where(eq(messageParts.id, interruptedPart.id))
+              .run();
+
+            toolFailedByPart.add(interruptedPart.toolCallId);
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: input.errorText,
+              entityId: interruptedPart.toolCallId,
+              entityType: 'tool_call',
+              event: {
+                error: input.errorText,
+                runId,
+                sessionId: interruptedPart.sessionId,
+                toolCallId: interruptedPart.toolCallId,
+                type: 'tool.failed'
+              },
+              headline: 'Tool failed',
+              level: 'error',
+              runId,
+              sessionId: interruptedPart.sessionId
+            });
+          }
+
+          const failedToolCallRows = db
+            .update(toolCalls)
+            .set({
+              completedAt: input.recoveredAt,
+              errorText: input.errorText,
+              resultJson: stringifyJsonValue({
+                error: input.errorText,
+                ok: false
+              }),
+              status: 'failed',
+              updatedAt: input.recoveredAt
+            })
+            .where(
+              and(
+                eq(toolCalls.runId, runId),
+                inArray(toolCalls.status, openToolCallStatuses)
+              )
+            )
+            .returning()
+            .all();
+
+          for (const toolCallRow of failedToolCallRows) {
+            if (toolFailedByPart.has(toolCallRow.id)) {
+              continue;
+            }
+
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: input.errorText,
+              entityId: toolCallRow.id,
+              entityType: 'tool_call',
+              event: {
+                error: input.errorText,
+                runId,
+                sessionId: toolCallRow.sessionId,
+                toolCallId: toolCallRow.id,
+                type: 'tool.failed'
+              },
+              headline: 'Tool failed',
+              level: 'error',
+              runId,
+              sessionId: toolCallRow.sessionId
+            });
+          }
+
+          const rejectedApprovalRows = db
+            .update(approvals)
+            .set({
+              decidedAt: input.recoveredAt,
+              decisionReasonText: input.errorText,
+              status: 'rejected'
+            })
+            .where(
+              and(eq(approvals.runId, runId), eq(approvals.status, 'pending'))
+            )
+            .returning()
+            .all();
+
+          for (const approvalRow of rejectedApprovalRows) {
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              detailText: 'rejected',
+              entityId: approvalRow.id,
+              entityType: 'approval',
+              event: {
+                approvalId: approvalRow.id,
+                decision: 'rejected',
+                runId,
+                sessionId: approvalRow.sessionId,
+                type: 'approval.resolved'
+              },
+              headline: 'Approval resolved',
+              runId,
+              sessionId: approvalRow.sessionId
+            });
+          }
         }
 
-        const runRow = tx
-          .update(agentRuns)
-          .set(runChanges)
-          .where(
-            and(
-              eq(agentRuns.id, runId),
-              inArray(agentRuns.status, openRunStatuses)
-            )
-          )
+        const sessionRow = db
+          .update(sessions)
+          .set({
+            lastErrorText: input.errorText,
+            status: 'blocked',
+            updatedAt: input.recoveredAt
+          })
+          .where(eq(sessions.id, input.sessionId))
           .returning()
           .get();
-        const run = runRow ? mapAgentRunRow(runRow) : null;
+        const session = sessionRow ? mapSessionRow(sessionRow) : null;
 
-        if (run) {
-          blockedRuns.push(run);
-          appendEvent({
+        appendRecoveryEvent(envelopes, {
+          createdAt: input.recoveredAt,
+          detailText: input.diagnostics.join('; ') || input.errorText,
+          entityId: input.sessionId,
+          entityType: 'session',
+          event: appendRecoveredEvent({
+            diagnostics: input.diagnostics,
+            interruptedRunIds: input.interruptedRunIds ?? [],
+            reason: 'invalid_waiting_approval_checkpoint',
+            recoveredAt: input.recoveredAt,
+            sessionId: input.sessionId
+          }),
+          headline: 'Session recovered',
+          level: 'warning',
+          sessionId: input.sessionId
+        });
+
+        if (session) {
+          appendRecoveryEvent(envelopes, {
             createdAt: input.recoveredAt,
-            detailText: input.errorText,
-            entityId: run.id,
-            entityType: 'agent_run',
+            entityId: input.sessionId,
+            entityType: 'session',
             event: {
-              error: input.errorText,
-              run,
               sessionId: input.sessionId,
-              type: 'run.blocked'
+              type: 'session.updated',
+              updatedAt: session.updatedAt
             },
-            headline: 'Run blocked',
-            level: 'warning',
-            runId: run.id,
+            headline: 'Session updated',
             sessionId: input.sessionId
           });
         }
 
-        if (!interruptedRunIds.has(runId)) {
-          continue;
-        }
-
-        const cancelledMessageRows = tx
-          .update(messages)
-          .set({
-            errorText: null,
-            finishReason: 'cancelled',
-            status: 'cancelled',
-            updatedAt: input.recoveredAt
-          })
-          .where(
-            and(
-              eq(messages.runId, runId),
-              eq(messages.role, 'assistant'),
-              eq(messages.status, 'running')
-            )
-          )
-          .returning()
-          .all();
-
-        for (const messageRow of cancelledMessageRows) {
-          appendEvent({
-            createdAt: input.recoveredAt,
-            entityId: messageRow.id,
-            entityType: 'message',
-            event: {
-              messageId: messageRow.id,
-              runId,
-              sessionId: messageRow.sessionId,
-              type: 'message.cancelled'
-            },
-            headline: 'Message cancelled',
-            runId,
-            sessionId: messageRow.sessionId
-          });
-        }
-
-        const toolFailedByPart = new Set<string>();
-        const toolPartRows = tx
-          .select()
-          .from(messageParts)
-          .where(
-            and(eq(messageParts.runId, runId), eq(messageParts.type, 'tool'))
-          )
-          .orderBy(asc(messageParts.createdAt), asc(messageParts.id))
-          .all();
-
-        for (const toolPartRow of toolPartRows) {
-          const toolPart = mapMessagePartRow(toolPartRow);
-
-          if (
-            toolPart.type !== 'tool' ||
-            (toolPart.state.status !== 'pending' &&
-              toolPart.state.status !== 'running')
-          ) {
-            continue;
-          }
-
-          const interruptedPart: Extract<MessagePart, { type: 'tool' }> = {
-            ...toolPart,
-            state: {
-              completedAt: input.recoveredAt,
-              errorText: input.errorText,
-              input: toolPart.state.input,
-              payload: { error: input.errorText, ok: false },
-              reason: 'interrupted',
-              startedAt:
-                toolPart.state.status === 'running'
-                  ? toolPart.state.startedAt
-                  : undefined,
-              status: 'error'
-            },
-            updatedAt: input.recoveredAt
-          };
-
-          tx.update(messageParts)
-            .set({
-              dataJson: stringifyJsonValue(interruptedPart),
-              updatedAt: input.recoveredAt
-            })
-            .where(eq(messageParts.id, interruptedPart.id))
-            .run();
-
-          toolFailedByPart.add(interruptedPart.toolCallId);
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: input.errorText,
-            entityId: interruptedPart.toolCallId,
-            entityType: 'tool_call',
-            event: {
-              error: input.errorText,
-              runId,
-              sessionId: interruptedPart.sessionId,
-              toolCallId: interruptedPart.toolCallId,
-              type: 'tool.failed'
-            },
-            headline: 'Tool failed',
-            level: 'error',
-            runId,
-            sessionId: interruptedPart.sessionId
-          });
-        }
-
-        const failedToolCallRows = tx
-          .update(toolCalls)
-          .set({
-            completedAt: input.recoveredAt,
-            errorText: input.errorText,
-            resultJson: stringifyJsonValue({
-              error: input.errorText,
-              ok: false
-            }),
-            status: 'failed',
-            updatedAt: input.recoveredAt
-          })
-          .where(
-            and(
-              eq(toolCalls.runId, runId),
-              inArray(toolCalls.status, openToolCallStatuses)
-            )
-          )
-          .returning()
-          .all();
-
-        for (const toolCallRow of failedToolCallRows) {
-          if (toolFailedByPart.has(toolCallRow.id)) {
-            continue;
-          }
-
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: input.errorText,
-            entityId: toolCallRow.id,
-            entityType: 'tool_call',
-            event: {
-              error: input.errorText,
-              runId,
-              sessionId: toolCallRow.sessionId,
-              toolCallId: toolCallRow.id,
-              type: 'tool.failed'
-            },
-            headline: 'Tool failed',
-            level: 'error',
-            runId,
-            sessionId: toolCallRow.sessionId
-          });
-        }
-
-        const rejectedApprovalRows = tx
-          .update(approvals)
-          .set({
-            decidedAt: input.recoveredAt,
-            decisionReasonText: input.errorText,
-            status: 'rejected'
-          })
-          .where(
-            and(eq(approvals.runId, runId), eq(approvals.status, 'pending'))
-          )
-          .returning()
-          .all();
-
-        for (const approvalRow of rejectedApprovalRows) {
-          appendEvent({
-            createdAt: input.recoveredAt,
-            detailText: 'rejected',
-            entityId: approvalRow.id,
-            entityType: 'approval',
-            event: {
-              approvalId: approvalRow.id,
-              decision: 'rejected',
-              runId,
-              sessionId: approvalRow.sessionId,
-              type: 'approval.resolved'
-            },
-            headline: 'Approval resolved',
-            runId,
-            sessionId: approvalRow.sessionId
-          });
-        }
-      }
-
-      const sessionRow = tx
-        .update(sessions)
-        .set({
-          lastErrorText: input.errorText,
-          status: 'blocked',
-          updatedAt: input.recoveredAt
-        })
-        .where(eq(sessions.id, input.sessionId))
-        .returning()
-        .get();
-      const session = sessionRow ? mapSessionRow(sessionRow) : null;
-
-      appendEvent({
-        createdAt: input.recoveredAt,
-        detailText: input.diagnostics.join('; ') || input.errorText,
-        entityId: input.sessionId,
-        entityType: 'session',
-        event: appendRecoveredEvent({
-          diagnostics: input.diagnostics,
-          interruptedRunIds: input.interruptedRunIds ?? [],
-          reason: 'invalid_waiting_approval_checkpoint',
-          recoveredAt: input.recoveredAt,
-          sessionId: input.sessionId
-        }),
-        headline: 'Session recovered',
-        level: 'warning',
-        sessionId: input.sessionId
+        return { blockedRuns, envelopes, session };
       });
-
-      if (session) {
-        appendEvent({
-          createdAt: input.recoveredAt,
-          entityId: input.sessionId,
-          entityType: 'session',
-          event: {
-            sessionId: input.sessionId,
-            type: 'session.updated',
-            updatedAt: session.updatedAt
-          },
-          headline: 'Session updated',
-          sessionId: input.sessionId
-        });
-      }
-
-      return { blockedRuns, envelopes, session };
     });
   },
 
   keepWaitingApproval(input: KeepWaitingApprovalInput): RecoveryWriteResult {
-    return db.transaction((tx) => {
-      const envelopes: SessionEventEnvelope[] = [];
+    return Database.transaction(() => {
+      return Database.use((db) => {
+        const envelopes: SessionEventEnvelope[] = [];
 
-      const appendEvent = (
-        eventInput: AppendRecoveryEventInput
-      ): SessionEventEnvelope => {
-        const previous = tx
-          .select({ sequenceNo: sessionEvents.sequenceNo })
-          .from(sessionEvents)
-          .where(eq(sessionEvents.sessionId, eventInput.sessionId))
-          .orderBy(desc(sessionEvents.sequenceNo))
-          .get();
-        const sequenceNo = (previous?.sequenceNo ?? 0) + 1;
-
-        tx.insert(sessionEvents)
-          .values({
-            createdAt: eventInput.createdAt,
-            detailText: eventInput.detailText ?? null,
-            entityId: eventInput.entityId ?? null,
-            entityType: eventInput.entityType ?? null,
-            headline: eventInput.headline ?? null,
-            id: `${eventInput.sessionId}:${sequenceNo}`,
-            level: eventInput.level ?? 'info',
-            payloadJson: stringifyJsonValue(eventInput.event),
-            runId: eventInput.runId ?? null,
-            sequenceNo,
-            sessionId: eventInput.sessionId,
-            taskId: null,
-            type: eventInput.event.type
+        const sessionRow = db
+          .update(sessions)
+          .set({
+            lastErrorText: null,
+            status: 'waiting_approval',
+            updatedAt: input.recoveredAt
           })
-          .run();
+          .where(eq(sessions.id, input.sessionId))
+          .returning()
+          .get();
+        const session = sessionRow ? mapSessionRow(sessionRow) : null;
 
-        const envelope = {
-          createdAt: eventInput.createdAt,
-          event: eventInput.event,
-          sequenceNo
-        };
-        envelopes.push(envelope);
-        return envelope;
-      };
-
-      const sessionRow = tx
-        .update(sessions)
-        .set({
-          lastErrorText: null,
-          status: 'waiting_approval',
-          updatedAt: input.recoveredAt
-        })
-        .where(eq(sessions.id, input.sessionId))
-        .returning()
-        .get();
-      const session = sessionRow ? mapSessionRow(sessionRow) : null;
-
-      appendEvent({
-        createdAt: input.recoveredAt,
-        detailText: input.diagnostics.join('; ') || null,
-        entityId: input.sessionId,
-        entityType: 'session',
-        event: appendRecoveredEvent({
-          diagnostics: input.diagnostics,
-          interruptedRunIds: [],
-          keptWaitingApprovalRunIds: input.keptWaitingApprovalRunIds,
-          reason: input.reason,
-          recoveredAt: input.recoveredAt,
-          sessionId: input.sessionId
-        }),
-        headline: 'Session recovered',
-        level: 'warning',
-        sessionId: input.sessionId
-      });
-
-      if (session) {
-        appendEvent({
+        appendRecoveryEvent(envelopes, {
           createdAt: input.recoveredAt,
+          detailText: input.diagnostics.join('; ') || null,
           entityId: input.sessionId,
           entityType: 'session',
-          event: {
+          event: appendRecoveredEvent({
+            diagnostics: input.diagnostics,
+            interruptedRunIds: [],
+            keptWaitingApprovalRunIds: input.keptWaitingApprovalRunIds,
+            reason: input.reason,
+            recoveredAt: input.recoveredAt,
+            sessionId: input.sessionId
+          }),
+          headline: 'Session recovered',
+          level: 'warning',
+          sessionId: input.sessionId
+        });
+
+        if (session) {
+          appendRecoveryEvent(envelopes, {
+            createdAt: input.recoveredAt,
+            entityId: input.sessionId,
+            entityType: 'session',
+            event: {
+              runId:
+                input.keptWaitingApprovalRunIds.length === 1
+                  ? input.keptWaitingApprovalRunIds[0]
+                  : undefined,
+              sessionId: input.sessionId,
+              type: 'session.updated',
+              updatedAt: session.updatedAt
+            },
+            headline: 'Session updated',
             runId:
               input.keptWaitingApprovalRunIds.length === 1
                 ? input.keptWaitingApprovalRunIds[0]
                 : undefined,
-            sessionId: input.sessionId,
-            type: 'session.updated',
-            updatedAt: session.updatedAt
-          },
-          headline: 'Session updated',
-          runId:
-            input.keptWaitingApprovalRunIds.length === 1
-              ? input.keptWaitingApprovalRunIds[0]
-              : undefined,
-          sessionId: input.sessionId
-        });
-      }
+            sessionId: input.sessionId
+          });
+        }
 
-      return { blockedRuns: [], envelopes, session };
+        return { blockedRuns: [], envelopes, session };
+      });
     });
   },
 
   recoverStaleSession(input: RecoverStaleSessionInput): RecoveryWriteResult {
-    return db.transaction((tx) => {
-      const envelopes: SessionEventEnvelope[] = [];
+    return Database.transaction(() => {
+      return Database.use((db) => {
+        const envelopes: SessionEventEnvelope[] = [];
 
-      const appendEvent = (
-        eventInput: AppendRecoveryEventInput
-      ): SessionEventEnvelope => {
-        const previous = tx
-          .select({ sequenceNo: sessionEvents.sequenceNo })
-          .from(sessionEvents)
-          .where(eq(sessionEvents.sessionId, eventInput.sessionId))
-          .orderBy(desc(sessionEvents.sequenceNo))
-          .get();
-        const sequenceNo = (previous?.sequenceNo ?? 0) + 1;
-
-        tx.insert(sessionEvents)
-          .values({
-            createdAt: eventInput.createdAt,
-            detailText: eventInput.detailText ?? null,
-            entityId: eventInput.entityId ?? null,
-            entityType: eventInput.entityType ?? null,
-            headline: eventInput.headline ?? null,
-            id: `${eventInput.sessionId}:${sequenceNo}`,
-            level: eventInput.level ?? 'info',
-            payloadJson: stringifyJsonValue(eventInput.event),
-            runId: eventInput.runId ?? null,
-            sequenceNo,
-            sessionId: eventInput.sessionId,
-            taskId: null,
-            type: eventInput.event.type
+        const sessionRow = db
+          .update(sessions)
+          .set({
+            lastCheckpointJson: input.status === 'idle' ? null : undefined,
+            lastErrorText: input.errorText,
+            status: input.status,
+            updatedAt: input.recoveredAt
           })
-          .run();
+          .where(eq(sessions.id, input.sessionId))
+          .returning()
+          .get();
+        const session = sessionRow ? mapSessionRow(sessionRow) : null;
 
-        const envelope = {
-          createdAt: eventInput.createdAt,
-          event: eventInput.event,
-          sequenceNo
-        };
-        envelopes.push(envelope);
-        return envelope;
-      };
-
-      const sessionRow = tx
-        .update(sessions)
-        .set({
-          lastCheckpointJson: input.status === 'idle' ? null : undefined,
-          lastErrorText: input.errorText,
-          status: input.status,
-          updatedAt: input.recoveredAt
-        })
-        .where(eq(sessions.id, input.sessionId))
-        .returning()
-        .get();
-      const session = sessionRow ? mapSessionRow(sessionRow) : null;
-
-      appendEvent({
-        createdAt: input.recoveredAt,
-        detailText: input.diagnostics.join('; ') || input.errorText,
-        entityId: input.sessionId,
-        entityType: 'session',
-        event: appendRecoveredEvent({
-          diagnostics: input.diagnostics,
-          interruptedRunIds: [],
-          reason: input.reason,
-          recoveredAt: input.recoveredAt,
-          sessionId: input.sessionId
-        }),
-        headline: 'Session recovered',
-        level: 'warning',
-        sessionId: input.sessionId
-      });
-
-      if (session) {
-        appendEvent({
+        appendRecoveryEvent(envelopes, {
           createdAt: input.recoveredAt,
+          detailText: input.diagnostics.join('; ') || input.errorText,
           entityId: input.sessionId,
           entityType: 'session',
-          event: {
-            sessionId: input.sessionId,
-            type: 'session.updated',
-            updatedAt: session.updatedAt
-          },
-          headline: 'Session updated',
+          event: appendRecoveredEvent({
+            diagnostics: input.diagnostics,
+            interruptedRunIds: [],
+            reason: input.reason,
+            recoveredAt: input.recoveredAt,
+            sessionId: input.sessionId
+          }),
+          headline: 'Session recovered',
+          level: 'warning',
           sessionId: input.sessionId
         });
-      }
 
-      return { blockedRuns: [], envelopes, session };
+        if (session) {
+          appendRecoveryEvent(envelopes, {
+            createdAt: input.recoveredAt,
+            entityId: input.sessionId,
+            entityType: 'session',
+            event: {
+              sessionId: input.sessionId,
+              type: 'session.updated',
+              updatedAt: session.updatedAt
+            },
+            headline: 'Session updated',
+            sessionId: input.sessionId
+          });
+        }
+
+        return { blockedRuns: [], envelopes, session };
+      });
     });
   }
 };

@@ -2,7 +2,7 @@ import { sessions } from '@opencode/orm';
 import type { NewSession, SessionRow } from '@opencode/orm';
 import type { SessionDto, SessionStatus } from '@opencode/shared';
 import { desc, eq, inArray } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { Database } from '../db/runtime.js';
 
 type UpdateResumeStateInput = {
   currentTaskId?: null | string;
@@ -36,23 +36,29 @@ function mapSessionRow(row: SessionRow): SessionDto {
 
 export const sessionRepository = {
   create(input: NewSession): SessionDto {
-    const row = db.insert(sessions).values(input).returning().get();
+    const row = Database.use((db) =>
+      db.insert(sessions).values(input).returning().get()
+    );
     return mapSessionRow(row);
   },
 
   getById(id: string): SessionDto | null {
-    const row = db.select().from(sessions).where(eq(sessions.id, id)).get();
+    const row = Database.use((db) =>
+      db.select().from(sessions).where(eq(sessions.id, id)).get()
+    );
     return row ? mapSessionRow(row) : null;
   },
 
   listByWorkspace(workspaceId: string): SessionDto[] {
-    return db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.workspaceId, workspaceId))
-      .orderBy(desc(sessions.updatedAt))
-      .all()
-      .map(mapSessionRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.workspaceId, workspaceId))
+        .orderBy(desc(sessions.updatedAt))
+        .all()
+        .map(mapSessionRow)
+    );
   },
 
   listByStatuses(statuses: SessionStatus[]): SessionDto[] {
@@ -60,13 +66,15 @@ export const sessionRepository = {
       return [];
     }
 
-    return db
-      .select()
-      .from(sessions)
-      .where(inArray(sessions.status, statuses))
-      .orderBy(desc(sessions.updatedAt))
-      .all()
-      .map(mapSessionRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(sessions)
+        .where(inArray(sessions.status, statuses))
+        .orderBy(desc(sessions.updatedAt))
+        .all()
+        .map(mapSessionRow)
+    );
   },
 
   updateResumeState(input: UpdateResumeStateInput): SessionDto | null {
@@ -90,12 +98,14 @@ export const sessionRepository = {
       changes.lastErrorText = input.lastErrorText;
     }
 
-    const row = db
-      .update(sessions)
-      .set(changes)
-      .where(eq(sessions.id, input.id))
-      .returning()
-      .get();
+    const row = Database.use((db) =>
+      db
+        .update(sessions)
+        .set(changes)
+        .where(eq(sessions.id, input.id))
+        .returning()
+        .get()
+    );
 
     return row ? mapSessionRow(row) : null;
   }

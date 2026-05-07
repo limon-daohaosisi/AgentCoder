@@ -3,6 +3,7 @@ import type {
   SessionEvent,
   SessionEventEnvelope
 } from '@opencode/shared';
+import { Database } from '../../db/runtime.js';
 import { sessionStreamHub } from '../../lib/session-stream-hub.js';
 import { parseJsonValue } from '../../lib/json.js';
 import { sessionEventRepository } from '../../repositories/session-event-repository.js';
@@ -212,7 +213,10 @@ export const sessionEventService = {
       sessionId: event.sessionId
     });
 
-    sessionStreamHub.publish(envelope);
+    Database.effect(() => {
+      sessionStreamHub.publish(envelope);
+    });
+
     return envelope;
   },
 

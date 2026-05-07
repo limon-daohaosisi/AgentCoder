@@ -8,7 +8,7 @@ import type {
   TokenUsageDto
 } from '@opencode/shared';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { Database } from '../db/runtime.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
 type CreateMessageInput = Omit<
@@ -90,54 +90,60 @@ function mapMessageRow(row: MessageRow): MessageDto {
 
 export const messageRepository = {
   cancelRunningByRun(input: CancelRunningByRunInput): MessageDto[] {
-    return db
-      .update(messages)
-      .set({
-        errorText: input.errorText,
-        finishReason: input.finishReason,
-        status: 'cancelled',
-        updatedAt: input.updatedAt
-      })
-      .where(
-        and(
-          eq(messages.runId, input.runId),
-          eq(messages.role, 'assistant'),
-          eq(messages.status, 'running')
+    return Database.use((db) =>
+      db
+        .update(messages)
+        .set({
+          errorText: input.errorText,
+          finishReason: input.finishReason,
+          status: 'cancelled',
+          updatedAt: input.updatedAt
+        })
+        .where(
+          and(
+            eq(messages.runId, input.runId),
+            eq(messages.role, 'assistant'),
+            eq(messages.status, 'running')
+          )
         )
-      )
-      .returning()
-      .all()
-      .map(mapMessageRow);
+        .returning()
+        .all()
+        .map(mapMessageRow)
+    );
   },
 
   create(input: CreateMessageInput): MessageDto {
-    const row = db
-      .insert(messages)
-      .values({
-        ...input,
-        contentJson: stringifyJsonValue(input.content),
-        providerMetadataJson: input.providerMetadata
-          ? stringifyJsonValue(input.providerMetadata)
-          : null,
-        runtimeJson: input.runtime ? stringifyJsonValue(input.runtime) : null,
-        summary: input.summary ? 1 : 0,
-        tokenUsageJson: input.tokenUsage
-          ? stringifyJsonValue(input.tokenUsage)
-          : null
-      })
-      .returning()
-      .get();
+    const row = Database.use((db) =>
+      db
+        .insert(messages)
+        .values({
+          ...input,
+          contentJson: stringifyJsonValue(input.content),
+          providerMetadataJson: input.providerMetadata
+            ? stringifyJsonValue(input.providerMetadata)
+            : null,
+          runtimeJson: input.runtime ? stringifyJsonValue(input.runtime) : null,
+          summary: input.summary ? 1 : 0,
+          tokenUsageJson: input.tokenUsage
+            ? stringifyJsonValue(input.tokenUsage)
+            : null
+        })
+        .returning()
+        .get()
+    );
 
     return mapMessageRow(row);
   },
 
   getById(id: string): MessageDto | null {
-    const row = db.select().from(messages).where(eq(messages.id, id)).get();
+    const row = Database.use((db) =>
+      db.select().from(messages).where(eq(messages.id, id)).get()
+    );
     return row ? mapMessageRow(row) : null;
   },
 
   listBySession(sessionId: string): MessageDto[] {
-    return (
+    return Database.use((db) =>
       db
         .select()
         .from(messages)
@@ -151,59 +157,65 @@ export const messageRepository = {
   },
 
   listRunningByRun(runId: string): MessageDto[] {
-    return db
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.runId, runId),
-          eq(messages.role, 'assistant'),
-          eq(messages.status, 'running')
+    return Database.use((db) =>
+      db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.runId, runId),
+            eq(messages.role, 'assistant'),
+            eq(messages.status, 'running')
+          )
         )
-      )
-      .orderBy(asc(messages.createdAt), asc(sql<number>`rowid`))
-      .all()
-      .map(mapMessageRow);
+        .orderBy(asc(messages.createdAt), asc(sql<number>`rowid`))
+        .all()
+        .map(mapMessageRow)
+    );
   },
 
   updateContent(id: string, content: MessagePart[]): MessageDto | null {
-    const row = db
-      .update(messages)
-      .set({
-        contentJson: stringifyJsonValue(content)
-      })
-      .where(eq(messages.id, id))
-      .returning()
-      .get();
+    const row = Database.use((db) =>
+      db
+        .update(messages)
+        .set({
+          contentJson: stringifyJsonValue(content)
+        })
+        .where(eq(messages.id, id))
+        .returning()
+        .get()
+    );
 
     return row ? mapMessageRow(row) : null;
   },
 
   updateRuntime(input: UpdateMessageRuntimeInput): MessageDto | null {
-    const row = db
-      .update(messages)
-      .set({
-        errorText: input.errorText,
-        finishReason: input.finishReason,
-        modelResponseId: input.modelResponseId,
-        providerMetadataJson:
-          input.providerMetadata === undefined
-            ? undefined
-            : input.providerMetadata === null
-              ? null
-              : stringifyJsonValue(input.providerMetadata),
-        status: input.status,
-        tokenUsageJson:
-          input.tokenUsage === undefined
-            ? undefined
-            : input.tokenUsage === null
-              ? null
-              : stringifyJsonValue(input.tokenUsage),
-        updatedAt: input.updatedAt
-      })
-      .where(eq(messages.id, input.id))
-      .returning()
-      .get();
+    const row = Database.use((db) =>
+      db
+        .update(messages)
+        .set({
+          errorText: input.errorText,
+          finishReason: input.finishReason,
+          modelResponseId: input.modelResponseId,
+          providerMetadataJson:
+            input.providerMetadata === undefined
+              ? undefined
+              : input.providerMetadata === null
+                ? null
+                : stringifyJsonValue(input.providerMetadata),
+          status: input.status,
+          tokenUsageJson:
+            input.tokenUsage === undefined
+              ? undefined
+              : input.tokenUsage === null
+                ? null
+                : stringifyJsonValue(input.tokenUsage),
+          updatedAt: input.updatedAt
+        })
+        .where(eq(messages.id, input.id))
+        .returning()
+        .get()
+    );
 
     return row ? mapMessageRow(row) : null;
   }

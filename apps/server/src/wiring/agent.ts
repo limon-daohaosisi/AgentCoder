@@ -7,8 +7,8 @@ import {
   type RunLoopDeps,
   type SessionProcessorDeps
 } from '@opencode/agent';
+import { Database } from '../db/runtime.js';
 import { ServiceError } from '../lib/service-error.js';
-import { approvalRepository } from '../repositories/approval-repository.js';
 import { workspaceRepository } from '../repositories/workspace-repository.js';
 import { createLanguageModel } from '../services/ai/provider.js';
 import { streamModelResponse } from '../services/ai/response-stream.js';
@@ -25,10 +25,10 @@ export function buildSessionProcessorDeps(
   return {
     appendMessagePart: (input) => messagePartService.appendPart(input),
     appendSessionEvent: (event) => sessionEventService.append(event),
-    createApproval: (input) => approvalRepository.create(input),
     createMessage: (input) => messageService.createMessage(input),
     createToolPartWithToolCall: (input) =>
       toolStateService.createToolPartWithToolCall(input),
+    persist: (callback) => Database.transaction(callback),
     streamModelResponse,
     updateMessagePart: (part) => messagePartService.updatePart(part),
     updateMessageRuntime: (input) => messageService.updateMessageRuntime(input),
@@ -45,6 +45,7 @@ export const sessionProcessor = new SessionProcessor(
 export const toolExecutor = new ToolExecutor({
   appendSessionEvent: (event) => sessionEventService.append(event),
   getMessagePart: (partId) => messagePartService.getPart(partId),
+  persist: (callback) => Database.transaction(callback),
   updateToolPartWithToolCall: (input) =>
     toolStateService.updateToolPartWithToolCall(input)
 });
@@ -70,6 +71,15 @@ export function buildLifecycleDeps(
 ): LifecycleDeps {
   return {
     appendSessionEvent: (event) => sessionEventService.append(event),
+    finalizeRunState: (input) =>
+      agentRunService.finalizeRunState({
+        checkpoint: 'checkpoint' in input ? input.checkpoint : undefined,
+        errorText: input.errorText,
+        reason: input.reason,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        sessionStatus: input.sessionStatus
+      } as never),
     getMessagePart: (partId) => messagePartService.getPart(partId),
     getSession: (sessionId) => sessionService.getSession(sessionId),
     getWorkspaceRootPath,
@@ -82,6 +92,7 @@ export function buildLifecycleDeps(
         checkpoint: input.lastCheckpoint,
         runId: input.runId
       }),
+    pauseForApproval: (input) => agentRunService.pauseForApproval(input),
     toolExecutor,
     updateSessionRuntimeState: (input) =>
       sessionService.updateSessionRuntimeState(input),

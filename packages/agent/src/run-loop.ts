@@ -1,4 +1,9 @@
-import type { SessionDto } from '@opencode/shared';
+import type {
+  ApprovalDto,
+  SessionCheckpoint,
+  SessionDto,
+  ToolCallDto
+} from '@opencode/shared';
 import {
   toAiSdkTurnRequest,
   type ModelFactory
@@ -20,7 +25,12 @@ export type RunLoopInput = {
 
 export type RunLoopResult =
   | { finishReason: string; kind: 'completed' }
-  | { checkpoint?: unknown; kind: 'paused_for_approval' }
+  | {
+      approval?: ApprovalDto;
+      checkpoint?: SessionCheckpoint;
+      kind: 'paused_for_approval';
+      toolCall?: ToolCallDto;
+    }
   | { kind: 'cancelled'; reason: string }
   | { error: string; kind: 'failed' }
   | { error: string; kind: 'context_too_large' }
@@ -124,7 +134,12 @@ export class RunLoop {
       case 'completed':
         return { finishReason: result.finishReason, kind: 'completed' };
       case 'paused_for_approval':
-        return { checkpoint: result.checkpoint, kind: 'paused_for_approval' };
+        return {
+          approval: result.approval,
+          checkpoint: result.checkpoint,
+          kind: 'paused_for_approval',
+          toolCall: result.toolCall
+        };
       case 'failed':
         return { error: result.error, kind: 'failed' };
       case 'cancelled':

@@ -62,7 +62,6 @@ type UpdateMessageRuntimeInput = {
 export type SessionProcessorDeps = {
   appendMessagePart(input: CreateMessagePartWithRunInput): MessagePart;
   appendSessionEvent(event: SessionEvent): unknown;
-  createApproval(input: CreateApprovalInput): ApprovalDto;
   createId?: () => string;
   createMessage(input: CreateMessageInput): MessageDto;
   createToolPartWithToolCall(input: {
@@ -89,6 +88,7 @@ export type SessionProcessorDeps = {
     toolCall: ToolCallDto;
   };
   now?: () => string;
+  persist?<T>(callback: () => T): T;
   prepareToolExecution?: typeof prepareToolExecution;
   streamModelResponse: StreamModelResponse;
   updateMessageRuntime(input: UpdateMessageRuntimeInput): MessageDto | null;
@@ -121,11 +121,16 @@ export type ProcessTurnInput = {
 export type ProcessorResult =
   | { finishReason: InternalFinishReason; kind: 'completed' }
   | {
+      approval: ApprovalDto;
+      checkpoint: SessionCheckpoint;
+      kind: 'paused_for_approval';
+      toolCall: ToolCallDto;
+    }
+  | {
       assistantMessageId: string;
       kind: 'tool_calls';
       toolParts: Extract<MessagePart, { type: 'tool' }>[];
     }
-  | { checkpoint: SessionCheckpoint; kind: 'paused_for_approval' }
   | { reason: string; kind: 'cancelled' }
   | { error: string; kind: 'failed' };
 
@@ -287,19 +292,21 @@ export class SessionProcessor {
     }
 
     if (state.message) {
-      this.deps.updateMessageRuntime({
-        finishReason,
-        id: state.message.id,
-        modelResponseId,
-        providerMetadata,
-        status: 'completed',
-        tokenUsage
-      });
-      this.deps.appendSessionEvent({
-        messageId: state.message.id,
-        runId: input.runId,
-        sessionId: input.sessionId,
-        type: 'message.completed'
+      this.persist(() => {
+        this.deps.updateMessageRuntime({
+          finishReason,
+          id: state.message!.id,
+          modelResponseId,
+          providerMetadata,
+          status: 'completed',
+          tokenUsage
+        });
+        this.deps.appendSessionEvent({
+          messageId: state.message!.id,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          type: 'message.completed'
+        });
       });
     }
 
@@ -340,10 +347,7 @@ export class SessionProcessor {
         toolCall
       });
 
-      return {
-        checkpoint,
-        kind: 'paused_for_approval'
-      };
+      return { ...checkpoint, kind: 'paused_for_approval' };
     }
 
     return {
@@ -364,36 +368,38 @@ export class SessionProcessor {
       input.runId,
       state
     );
-    const existing = state.textParts.get(streamPartId);
+    this.persist(() => {
+      const existing = state.textParts.get(streamPartId);
 
-    if (!existing) {
-      const part = this.deps.appendMessagePart({
+      if (!existing) {
+        const part = this.deps.appendMessagePart({
+          messageId: message.id,
+          order: state.nextOrder++,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          text: delta,
+          type: 'text'
+        }) as Extract<MessagePart, { type: 'text' }>;
+
+        state.textParts.set(streamPartId, part);
+      } else {
+        const updated = this.deps.updateMessagePart({
+          ...existing,
+          text: existing.text + delta
+        }) as Extract<MessagePart, { type: 'text' }> | null;
+
+        if (updated) {
+          state.textParts.set(streamPartId, updated);
+        }
+      }
+
+      this.deps.appendSessionEvent({
+        delta,
         messageId: message.id,
-        order: state.nextOrder++,
         runId: input.runId,
         sessionId: input.sessionId,
-        text: delta,
-        type: 'text'
-      }) as Extract<MessagePart, { type: 'text' }>;
-
-      state.textParts.set(streamPartId, part);
-    } else {
-      const updated = this.deps.updateMessagePart({
-        ...existing,
-        text: existing.text + delta
-      }) as Extract<MessagePart, { type: 'text' }> | null;
-
-      if (updated) {
-        state.textParts.set(streamPartId, updated);
-      }
-    }
-
-    this.deps.appendSessionEvent({
-      delta,
-      messageId: message.id,
-      runId: input.runId,
-      sessionId: input.sessionId,
-      type: 'message.delta'
+        type: 'message.delta'
+      });
     });
   }
 
@@ -537,11 +543,11 @@ export class SessionProcessor {
     }
 
     const now = this.now();
-    const approval = this.deps.createApproval({
+    const approval: ApprovalDto = {
       createdAt: now,
-      decisionReasonText: null,
-      decidedAt: null,
-      decidedBy: null,
+      decisionReasonText: undefined,
+      decidedAt: undefined,
+      decidedBy: undefined,
       decisionScope: 'once',
       id: this.createId(),
       kind: input.part.toolName as ApprovalDto['kind'],
@@ -549,10 +555,10 @@ export class SessionProcessor {
       runId: input.input.runId,
       sessionId: input.input.sessionId,
       status: 'pending',
-      suggestedRuleJson: null,
-      taskId: null,
+      suggestedRuleJson: undefined,
+      taskId: undefined,
       toolCallId: input.part.toolCallId
-    });
+    };
     const checkpoint = buildSessionCheckpoint({
       approvalId: approval.id,
       kind: 'waiting_approval',
@@ -562,21 +568,11 @@ export class SessionProcessor {
       toolCallId: input.part.toolCallId
     });
 
-    this.deps.appendSessionEvent({
+    return {
       approval,
-      runId: input.input.runId,
-      sessionId: input.input.sessionId,
-      toolCall: input.toolCall,
-      type: 'tool.pending'
-    });
-    this.deps.appendSessionEvent({
-      approval,
-      runId: input.input.runId,
-      sessionId: input.input.sessionId,
-      type: 'approval.created'
-    });
-
-    return checkpoint;
+      checkpoint,
+      toolCall: input.toolCall
+    };
   }
 
   private failToolParts(
@@ -589,47 +585,53 @@ export class SessionProcessor {
     const completedAt = this.now();
     const payload = { error: errorText, ok: false };
 
-    for (const part of parts) {
-      const failedPart: Extract<MessagePart, { type: 'tool' }> = {
-        ...part,
-        state: {
-          completedAt,
-          errorText,
-          input: part.state.input,
-          payload,
-          reason: 'interrupted',
-          status: 'error'
-        }
-      };
+    this.persist(() => {
+      for (const part of parts) {
+        const failedPart: Extract<MessagePart, { type: 'tool' }> = {
+          ...part,
+          state: {
+            completedAt,
+            errorText,
+            input: part.state.input,
+            payload,
+            reason: 'interrupted',
+            status: 'error'
+          }
+        };
 
-      this.deps.updateToolPartWithToolCall({
-        part: failedPart,
-        toolCall: {
-          completedAt,
-          errorText,
-          id: part.toolCallId,
-          result: payload,
-          status: 'failed',
-          updatedAt: completedAt
-        }
-      });
-      this.deps.appendSessionEvent({
-        error: errorText,
-        runId,
-        sessionId,
-        toolCallId: part.toolCallId,
-        type: 'tool.failed'
-      });
-    }
+        this.deps.updateToolPartWithToolCall({
+          part: failedPart,
+          toolCall: {
+            completedAt,
+            errorText,
+            id: part.toolCallId,
+            result: payload,
+            status: 'failed',
+            updatedAt: completedAt
+          }
+        });
+        this.deps.appendSessionEvent({
+          error: errorText,
+          runId,
+          sessionId,
+          toolCallId: part.toolCallId,
+          type: 'tool.failed'
+        });
+      }
 
-    if (state.message) {
-      this.deps.updateMessageRuntime({
-        errorText,
-        finishReason: 'error',
-        id: state.message.id,
-        status: 'failed'
-      });
-    }
+      if (state.message) {
+        this.deps.updateMessageRuntime({
+          errorText,
+          finishReason: 'error',
+          id: state.message.id,
+          status: 'failed'
+        });
+      }
+    });
+  }
+
+  private persist<T>(callback: () => T): T {
+    return (this.deps.persist ?? ((run) => run()))(callback);
   }
 
   private async ensureAssistantMessage(
@@ -641,20 +643,25 @@ export class SessionProcessor {
       return state.message;
     }
 
-    const message = this.deps.createMessage({
-      content: [],
-      role: 'assistant',
-      runId,
-      sessionId,
-      status: 'running'
+    const message = this.persist(() => {
+      const created = this.deps.createMessage({
+        content: [],
+        role: 'assistant',
+        runId,
+        sessionId,
+        status: 'running'
+      });
+
+      this.deps.appendSessionEvent({
+        message: created,
+        sessionId,
+        type: 'message.created'
+      });
+
+      return created;
     });
 
     state.message = message;
-    this.deps.appendSessionEvent({
-      message,
-      sessionId,
-      type: 'message.created'
-    });
     return message;
   }
 
@@ -666,11 +673,13 @@ export class SessionProcessor {
     const errorMessage = formatError(error);
 
     if (state.message) {
-      this.deps.updateMessageRuntime({
-        errorText: errorMessage,
-        finishReason: 'error',
-        id: state.message.id,
-        status: 'failed'
+      this.persist(() => {
+        this.deps.updateMessageRuntime({
+          errorText: errorMessage,
+          finishReason: 'error',
+          id: state.message!.id,
+          status: 'failed'
+        });
       });
     }
 
@@ -688,17 +697,19 @@ export class SessionProcessor {
     const reason = getAbortReason(input.signal);
 
     if (state.message) {
-      this.deps.updateMessageRuntime({
-        errorText: null,
-        finishReason: 'cancelled',
-        id: state.message.id,
-        status: 'cancelled'
-      });
-      this.deps.appendSessionEvent({
-        messageId: state.message.id,
-        runId: input.runId,
-        sessionId,
-        type: 'message.cancelled'
+      this.persist(() => {
+        this.deps.updateMessageRuntime({
+          errorText: null,
+          finishReason: 'cancelled',
+          id: state.message!.id,
+          status: 'cancelled'
+        });
+        this.deps.appendSessionEvent({
+          messageId: state.message!.id,
+          runId: input.runId,
+          sessionId,
+          type: 'message.cancelled'
+        });
       });
     }
 

@@ -34,16 +34,18 @@ wiring -> services/repositories/provider
 1. 这个目录的代码应该薄，主要是 `buildXxxDeps` 和实例化。
 2. 不要在 deps 回调里写复杂业务逻辑；超过几行的逻辑应下沉到 service。
 3. 保持 agent core 与 server 的隔离，不要反向让 `packages/agent` import server。
-4. 增加新的 deps 时，优先使用小接口，不要把整个 service 对象无脑传入。
-5. 测试需要替换 deps 时，应通过 builder 的 `overrides` 完成。
+4. 事务能力仍只存在于 server。若 agent core 需要把多次持久化收口到一个短事务，应在 wiring 中注入高层动作，例如 `persist(...)`、`finalizeRunState(...)`、`pauseForApproval(...)`，而不是把 DB/tx 直接暴露给 `packages/agent`。
+5. 增加新的 deps 时，优先使用小接口，不要把整个 service 对象无脑传入。
+6. 测试需要替换 deps 时，应通过 builder 的 `overrides` 完成。
 
 ## 常见错误
 
 1. 把 prompt/approval/cancel 的完整流程写在 wiring。
 2. 在 wiring 中直接拼 HTTP response。
 3. 在 wiring 中直接写复杂 SQL 或 repository 映射。
-4. 把一个庞大的 service 传给 agent core，导致 core 隐式依赖 server。
-5. 新增 agent deps 后忘记更新 server tests 的 mock/override。
+4. 把 server DB client 或 transaction object 直接传进 `packages/agent`。
+5. 把一个庞大的 service 传给 agent core，导致 core 隐式依赖 server。
+6. 新增 agent deps 后忘记更新 server tests 的 mock/override。
 
 ## 验证建议
 

@@ -2,7 +2,7 @@ import { agentRuns } from '@opencode/orm';
 import type { AgentRunRow, NewAgentRun } from '@opencode/orm';
 import type { AgentRunDto, AgentRunStatus } from '@opencode/shared';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { Database } from '../db/runtime.js';
 
 const openRunStatuses: AgentRunStatus[] = ['running', 'waiting_approval'];
 
@@ -37,85 +37,99 @@ function mapAgentRunRow(row: AgentRunRow): AgentRunDto {
 }
 
 function updateOpenRun(input: MarkRunInput): AgentRunDto | null {
-  const row = db
-    .update(agentRuns)
-    .set({
-      cancelledAt: input.cancelledAt,
-      endedAt: input.endedAt,
-      errorText: input.errorText,
-      lastCheckpointJson: input.lastCheckpointJson,
-      status: input.status,
-      updatedAt: input.updatedAt
-    })
-    .where(
-      and(
-        eq(agentRuns.id, input.id),
-        inArray(agentRuns.status, openRunStatuses)
+  const row = Database.use((db) =>
+    db
+      .update(agentRuns)
+      .set({
+        cancelledAt: input.cancelledAt,
+        endedAt: input.endedAt,
+        errorText: input.errorText,
+        lastCheckpointJson: input.lastCheckpointJson,
+        status: input.status,
+        updatedAt: input.updatedAt
+      })
+      .where(
+        and(
+          eq(agentRuns.id, input.id),
+          inArray(agentRuns.status, openRunStatuses)
+        )
       )
-    )
-    .returning()
-    .get();
+      .returning()
+      .get()
+  );
 
   return row ? mapAgentRunRow(row) : null;
 }
 
 export const agentRunRepository = {
   create(input: NewAgentRun): AgentRunDto {
-    const row = db.insert(agentRuns).values(input).returning().get();
+    const row = Database.use((db) =>
+      db.insert(agentRuns).values(input).returning().get()
+    );
     return mapAgentRunRow(row);
   },
 
   getActiveBySession(sessionId: string): AgentRunDto | null {
-    const row = db
-      .select()
-      .from(agentRuns)
-      .where(
-        and(
-          eq(agentRuns.sessionId, sessionId),
-          inArray(agentRuns.status, openRunStatuses)
+    const row = Database.use((db) =>
+      db
+        .select()
+        .from(agentRuns)
+        .where(
+          and(
+            eq(agentRuns.sessionId, sessionId),
+            inArray(agentRuns.status, openRunStatuses)
+          )
         )
-      )
-      .orderBy(desc(agentRuns.createdAt))
-      .get();
+        .orderBy(desc(agentRuns.createdAt))
+        .get()
+    );
 
     return row ? mapAgentRunRow(row) : null;
   },
 
   getById(id: string): AgentRunDto | null {
-    const row = db.select().from(agentRuns).where(eq(agentRuns.id, id)).get();
+    const row = Database.use((db) =>
+      db.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+    );
     return row ? mapAgentRunRow(row) : null;
   },
 
   listBySession(sessionId: string): AgentRunDto[] {
-    return db
-      .select()
-      .from(agentRuns)
-      .where(eq(agentRuns.sessionId, sessionId))
-      .orderBy(desc(agentRuns.createdAt))
-      .all()
-      .map(mapAgentRunRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.sessionId, sessionId))
+        .orderBy(desc(agentRuns.createdAt))
+        .all()
+        .map(mapAgentRunRow)
+    );
   },
 
   listOpen(): AgentRunDto[] {
-    return db
-      .select()
-      .from(agentRuns)
-      .where(inArray(agentRuns.status, openRunStatuses))
-      .orderBy(desc(agentRuns.createdAt))
-      .all()
-      .map(mapAgentRunRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(agentRuns)
+        .where(inArray(agentRuns.status, openRunStatuses))
+        .orderBy(desc(agentRuns.createdAt))
+        .all()
+        .map(mapAgentRunRow)
+    );
   },
 
   listOpenByStatus(
     status: Extract<AgentRunStatus, 'running' | 'waiting_approval'>
   ): AgentRunDto[] {
-    return db
-      .select()
-      .from(agentRuns)
-      .where(eq(agentRuns.status, status))
-      .orderBy(desc(agentRuns.createdAt))
-      .all()
-      .map(mapAgentRunRow);
+    return Database.use((db) =>
+      db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.status, status))
+        .orderBy(desc(agentRuns.createdAt))
+        .all()
+        .map(mapAgentRunRow)
+    );
   },
 
   markBlocked(input: {
@@ -176,21 +190,23 @@ export const agentRunRepository = {
   },
 
   markRunning(input: { id: string; updatedAt: string }): AgentRunDto | null {
-    const row = db
-      .update(agentRuns)
-      .set({
-        lastCheckpointJson: null,
-        status: 'running',
-        updatedAt: input.updatedAt
-      })
-      .where(
-        and(
-          eq(agentRuns.id, input.id),
-          eq(agentRuns.status, 'waiting_approval')
+    const row = Database.use((db) =>
+      db
+        .update(agentRuns)
+        .set({
+          lastCheckpointJson: null,
+          status: 'running',
+          updatedAt: input.updatedAt
+        })
+        .where(
+          and(
+            eq(agentRuns.id, input.id),
+            eq(agentRuns.status, 'waiting_approval')
+          )
         )
-      )
-      .returning()
-      .get();
+        .returning()
+        .get()
+    );
 
     return row ? mapAgentRunRow(row) : null;
   },
@@ -213,15 +229,17 @@ export const agentRunRepository = {
     triggerMessageId: string;
     updatedAt: string;
   }): AgentRunDto | null {
-    const row = db
-      .update(agentRuns)
-      .set({
-        triggerMessageId: input.triggerMessageId,
-        updatedAt: input.updatedAt
-      })
-      .where(eq(agentRuns.id, input.id))
-      .returning()
-      .get();
+    const row = Database.use((db) =>
+      db
+        .update(agentRuns)
+        .set({
+          triggerMessageId: input.triggerMessageId,
+          updatedAt: input.updatedAt
+        })
+        .where(eq(agentRuns.id, input.id))
+        .returning()
+        .get()
+    );
 
     return row ? mapAgentRunRow(row) : null;
   }

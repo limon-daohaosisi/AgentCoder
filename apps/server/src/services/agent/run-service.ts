@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type {
   AgentRunDto,
+  ApprovalDto,
   CancelRunResponse,
   SessionCheckpoint,
-  SessionDto
+  SessionDto,
+  ToolCallDto
 } from '@opencode/shared';
+import { Database } from '../../db/runtime.js';
 import { stringifyJsonValue } from '../../lib/json.js';
 import { ServiceError } from '../../lib/service-error.js';
 import { agentRunRepository } from '../../repositories/agent-run-repository.js';
@@ -71,13 +74,41 @@ export class AgentRunService {
     const reason = input.reason ?? runCancelledText;
 
     this.runner.cancel(input.sessionId, reason);
-    const updatedRun = agentRunRepository.markCancelled({
-      errorText: reason,
-      id: activeRun.id,
-      updatedAt: new Date().toISOString()
+    const result = Database.transaction(() => {
+      const updatedRun = agentRunRepository.markCancelled({
+        errorText: reason,
+        id: activeRun.id,
+        updatedAt: new Date().toISOString()
+      });
+
+      if (!updatedRun) {
+        return null;
+      }
+
+      this.interruptOpenState(activeRun.id, reason);
+
+      const updatedSession = sessionService.updateSessionRuntimeState({
+        lastCheckpoint: null,
+        lastErrorText: null,
+        sessionId: input.sessionId,
+        status: 'idle'
+      });
+
+      sessionEventService.append({
+        reason,
+        run: updatedRun,
+        sessionId: input.sessionId,
+        type: 'run.cancelled'
+      });
+      appendSessionUpdated(updatedSession, updatedRun.id);
+
+      return {
+        run: updatedRun,
+        session: updatedSession
+      };
     });
 
-    if (!updatedRun) {
+    if (!result) {
       return {
         cancelled: false,
         reason: 'no_active_run',
@@ -85,31 +116,14 @@ export class AgentRunService {
       };
     }
 
-    this.interruptOpenState(activeRun.id, reason);
-
-    const updatedSession = sessionService.updateSessionRuntimeState({
-      lastCheckpoint: null,
-      lastErrorText: null,
-      sessionId: input.sessionId,
-      status: 'idle'
-    });
-
-    sessionEventService.append({
-      reason,
-      run: updatedRun,
-      sessionId: input.sessionId,
-      type: 'run.cancelled'
-    });
-    appendSessionUpdated(updatedSession, updatedRun.id);
-
     return {
       cancelled: true,
       reason:
         session.status === 'waiting_approval'
           ? 'approval_cancelled'
           : 'active_run_cancelled',
-      run: updatedRun,
-      session: updatedSession ?? session
+      run: result.run,
+      session: result.session ?? session
     };
   }
 
@@ -128,6 +142,74 @@ export class AgentRunService {
       status: 'running',
       triggerMessageId: null,
       updatedAt: now
+    });
+  }
+
+  pauseForApproval(input: {
+    approval: ApprovalDto;
+    checkpoint: SessionCheckpoint | string;
+    runId: string;
+    sessionId: string;
+    toolCall: ToolCallDto;
+  }): {
+    approval: ApprovalDto;
+    run: AgentRunDto | null;
+    session: SessionDto | null;
+  } {
+    return Database.transaction(() => {
+      const approval = approvalRepository.create({
+        createdAt: input.approval.createdAt,
+        decisionReasonText: input.approval.decisionReasonText ?? null,
+        decidedAt: input.approval.decidedAt ?? null,
+        decidedBy: input.approval.decidedBy ?? null,
+        decisionScope: input.approval.decisionScope ?? 'once',
+        id: input.approval.id,
+        kind: input.approval.kind,
+        payload: input.approval.payload,
+        runId: input.approval.runId ?? null,
+        sessionId: input.approval.sessionId,
+        status: input.approval.status,
+        suggestedRuleJson: input.approval.suggestedRuleJson ?? null,
+        taskId: input.approval.taskId ?? null,
+        toolCallId: input.approval.toolCallId
+      });
+      const run = this.markWaitingApproval({
+        checkpoint: input.checkpoint,
+        runId: input.runId
+      });
+      const session = sessionService.updateSessionRuntimeState({
+        lastCheckpoint: input.checkpoint,
+        lastErrorText: null,
+        sessionId: input.sessionId,
+        status: 'waiting_approval'
+      });
+
+      sessionEventService.append({
+        approval,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        toolCall: input.toolCall,
+        type: 'tool.pending'
+      });
+      sessionEventService.append({
+        approval,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        type: 'approval.created'
+      });
+
+      if (run) {
+        sessionEventService.append({
+          checkpoint: serializeCheckpoint(input.checkpoint),
+          runId: input.runId,
+          sessionId: input.sessionId,
+          type: 'session.resumable'
+        });
+      }
+
+      appendSessionUpdated(session, input.runId);
+
+      return { approval, run, session };
     });
   }
 
@@ -177,6 +259,119 @@ export class AgentRunService {
       id: input.runId,
       lastCheckpointJson: serializeCheckpoint(input.checkpoint),
       updatedAt: new Date().toISOString()
+    });
+  }
+
+  finalizeRunState(
+    input:
+      | {
+          checkpoint?: never;
+          errorText?: null | string;
+          reason: 'blocked' | 'cancelled' | 'completed' | 'failed';
+          runId: string;
+          sessionId: string;
+          sessionStatus: 'blocked' | 'idle';
+        }
+      | {
+          checkpoint: SessionCheckpoint | string;
+          errorText?: null | string;
+          reason: 'waiting_approval';
+          runId: string;
+          sessionId: string;
+          sessionStatus: 'waiting_approval';
+        }
+  ) {
+    return Database.transaction(() => {
+      let run: AgentRunDto | null;
+
+      switch (input.reason) {
+        case 'completed':
+          run = this.markCompleted({ runId: input.runId });
+          break;
+        case 'cancelled':
+          run = this.markCancelled({
+            errorText: input.errorText,
+            runId: input.runId
+          });
+          break;
+        case 'blocked':
+          run = this.markBlocked({
+            errorText: input.errorText ?? 'Run blocked.',
+            runId: input.runId
+          });
+          break;
+        case 'failed':
+          run = this.markFailed({
+            errorText: input.errorText ?? 'Run failed.',
+            runId: input.runId
+          });
+          break;
+        case 'waiting_approval':
+          run = this.markWaitingApproval({
+            checkpoint: input.checkpoint,
+            runId: input.runId
+          });
+          break;
+      }
+
+      const session = sessionService.updateSessionRuntimeState({
+        lastCheckpoint:
+          input.reason === 'waiting_approval' ? input.checkpoint : null,
+        lastErrorText:
+          input.reason === 'completed' || input.reason === 'cancelled'
+            ? null
+            : input.errorText,
+        sessionId: input.sessionId,
+        status: input.sessionStatus
+      });
+
+      if (run) {
+        switch (input.reason) {
+          case 'completed':
+            sessionEventService.append({
+              run,
+              sessionId: input.sessionId,
+              type: 'run.completed'
+            });
+            break;
+          case 'cancelled':
+            sessionEventService.append({
+              reason: input.errorText ?? 'Run cancelled by user',
+              run,
+              sessionId: input.sessionId,
+              type: 'run.cancelled'
+            });
+            break;
+          case 'blocked':
+            sessionEventService.append({
+              error: input.errorText ?? 'Run blocked.',
+              run,
+              sessionId: input.sessionId,
+              type: 'run.blocked'
+            });
+            break;
+          case 'failed':
+            sessionEventService.append({
+              error: input.errorText ?? 'Run failed.',
+              run,
+              sessionId: input.sessionId,
+              type: 'run.failed'
+            });
+            break;
+          case 'waiting_approval':
+            sessionEventService.append({
+              checkpoint: serializeCheckpoint(input.checkpoint),
+              runId: input.runId,
+              sessionId: input.sessionId,
+              type: 'session.resumable'
+            });
+            break;
+        }
+      }
+
+      appendSessionUpdated(session, input.runId);
+
+      return { run, session };
     });
   }
 

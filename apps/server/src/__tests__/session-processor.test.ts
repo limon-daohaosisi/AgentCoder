@@ -291,12 +291,15 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
   assert.ok(result.checkpoint.partId);
   assert.equal(result.checkpoint.modelToolCallId, 'model-call-write');
   assert.ok(result.checkpoint.toolCallId);
+  assert.equal(result.approval.kind, 'write_file');
+  assert.equal(result.approval.status, 'pending');
+  assert.equal(result.toolCall.id, result.checkpoint.toolCallId);
   assert.equal(sessionService.getSession(session.id)?.status, 'planning');
   assert.deepEqual(
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['message.created', 'message.completed', 'tool.pending', 'approval.created']
+    ['message.created', 'message.completed']
   );
 });
 

@@ -7,6 +7,7 @@ import type {
   MessageStatus,
   TokenUsageDto
 } from '@opencode/shared';
+import { Database } from '../../../db/runtime.js';
 import { ServiceError } from '../../../lib/service-error.js';
 import { messageRepository } from '../../../repositories/message-repository.js';
 import { messagePartRepository } from '../../../repositories/message-part-repository.js';
@@ -68,69 +69,71 @@ function normalizePart(
 
 export const messageService = {
   createMessage(input: CreateMessageInput): MessageDto {
-    const session = sessionRepository.getById(input.sessionId);
+    return Database.transaction(() => {
+      const session = sessionRepository.getById(input.sessionId);
 
-    if (!session) {
-      throw new ServiceError(`Session not found: ${input.sessionId}`, 404);
-    }
+      if (!session) {
+        throw new ServiceError(`Session not found: ${input.sessionId}`, 404);
+      }
 
-    const now = input.createdAt ?? new Date().toISOString();
-    const messageId = input.id ?? randomUUID();
-    const parts = (input.content ?? []).map((part, index) => {
-      // createMessage owns the DB message id, so part inputs may omit it.
-      return normalizePart(
-        {
-          ...part,
-          messageId,
-          sessionId: input.sessionId
-        },
-        index
-      );
-    });
-
-    const message = messageRepository.create({
-      agentName: input.agentName ?? null,
-      compactedByMessageId: null,
-      content: [],
-      createdAt: now,
-      errorText: input.errorText ?? null,
-      finishReason: input.finishReason ?? null,
-      id: messageId,
-      kind: 'message',
-      modelId: input.model?.modelId ?? null,
-      modelProviderId: input.model?.providerId ?? null,
-      modelResponseId: null,
-      parentMessageId: input.parentMessageId ?? null,
-      providerMetadata: input.providerMetadata,
-      role: input.role,
-      runtime: input.runtime,
-      runId: input.runId ?? null,
-      sessionId: input.sessionId,
-      status: input.status ?? 'completed',
-      summary: input.summary,
-      taskId: input.taskId ?? null,
-      tokenUsage: input.tokenUsage,
-      updatedAt: now
-    });
-
-    for (const part of parts) {
-      messagePartRepository.create({
-        createdAt: part.createdAt,
-        data: part,
-        id: part.id,
-        messageId: part.messageId,
-        order: part.order,
-        runId: input.runId ?? null,
-        sessionId: part.sessionId,
-        type: part.type,
-        updatedAt: part.updatedAt
+      const now = input.createdAt ?? new Date().toISOString();
+      const messageId = input.id ?? randomUUID();
+      const parts = (input.content ?? []).map((part, index) => {
+        // createMessage owns the DB message id, so part inputs may omit it.
+        return normalizePart(
+          {
+            ...part,
+            messageId,
+            sessionId: input.sessionId
+          },
+          index
+        );
       });
-    }
 
-    return {
-      ...message,
-      content: parts
-    };
+      const message = messageRepository.create({
+        agentName: input.agentName ?? null,
+        compactedByMessageId: null,
+        content: [],
+        createdAt: now,
+        errorText: input.errorText ?? null,
+        finishReason: input.finishReason ?? null,
+        id: messageId,
+        kind: 'message',
+        modelId: input.model?.modelId ?? null,
+        modelProviderId: input.model?.providerId ?? null,
+        modelResponseId: null,
+        parentMessageId: input.parentMessageId ?? null,
+        providerMetadata: input.providerMetadata,
+        role: input.role,
+        runtime: input.runtime,
+        runId: input.runId ?? null,
+        sessionId: input.sessionId,
+        status: input.status ?? 'completed',
+        summary: input.summary,
+        taskId: input.taskId ?? null,
+        tokenUsage: input.tokenUsage,
+        updatedAt: now
+      });
+
+      for (const part of parts) {
+        messagePartRepository.create({
+          createdAt: part.createdAt,
+          data: part,
+          id: part.id,
+          messageId: part.messageId,
+          order: part.order,
+          runId: input.runId ?? null,
+          sessionId: part.sessionId,
+          type: part.type,
+          updatedAt: part.updatedAt
+        });
+      }
+
+      return {
+        ...message,
+        content: parts
+      };
+    });
   },
 
   listMessages(sessionId: string) {

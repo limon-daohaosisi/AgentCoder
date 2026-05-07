@@ -28,6 +28,13 @@ services -> wiring/packages/agent when running agent workflows
 services -> session-events when publishing domain events
 ```
 
+关键实现约定：
+
+```text
+services -> Database.transaction(...) -> repositories/session-events
+services -> Database.effect(...) for after-commit side effects
+```
+
 错误方向：
 
 ```text
@@ -48,11 +55,12 @@ repositories -> services
 
 1. service 方法名表达业务动作，例如 `createSession`、`resumeSession`、`resolveApproval`。
 2. service 可以组合多个 repository，但要保持流程清晰，不要变成巨大工具箱。
-3. 更新核心状态时同步考虑是否需要追加 `SessionEvent`。
+3. 涉及多个 durable write 的业务动作，默认由 service 作为事务边界，使用 `Database.transaction(...)` 把 projection 更新和 `sessionEventService.append(...)` 包进同一个短事务。
 4. 长任务执行必须经过 `SessionRunner` 或等价机制，避免同一 session 并发运行。
 5. 不要在 service 里返回 DB row；返回 DTO 或明确的 response model。
-6. `agent/` 中的 run 边界以 `AgentRunService` 为准：prompt/resume 只启动或恢复 run，run 终态由 `Lifecycle`/带 open-status 条件的 repository 更新负责，cancel service 只中断当前 open run 并幂等清理该 run 的 open message/tool/approval 状态。
-7. server 启动恢复历史 `running`/`waiting_approval` run 时，应实现为 service 层的启动恢复用例并调用 repositories/session-events；不要放在 routes、repositories 或 `packages/agent`。
+6. `sessionEventService.append(...)` 现在只负责“durable append + 注册 after-commit publish”。service 不应在事务内直接触发 `sessionStreamHub.publish(...)`。
+7. `agent/` 中的 run 边界以 `AgentRunService` 为准：prompt/resume 只启动或恢复 run；run terminalize、approval pause、cancel cleanup 等原子持久化动作优先沉到 `AgentRunService` 这类高层动作中统一处理。
+8. server 启动恢复历史 `running`/`waiting_approval` run 时，应实现为 service 层的启动恢复用例并调用 repositories/session-events；不要放在 routes 或 `packages/agent`。
 
 ## 常见错误
 
@@ -60,7 +68,8 @@ repositories -> services
 2. service 直接拼接 SQL 或处理 Drizzle row 细节。
 3. 更新 session/message/tool 状态但忘记写 session event。
 4. 新增 agent 流程时绕过 `SessionRunner`，导致并发 run。
-5. 把前端展示字段硬编码进服务层，污染业务用例。
+5. 把应该在同一个事务里的 projection 更新拆成多次独立提交。
+6. 把前端展示字段硬编码进服务层，污染业务用例。
 
 ## 验证建议
 
