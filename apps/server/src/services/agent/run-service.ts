@@ -432,6 +432,13 @@ export class AgentRunService {
 
     for (const toolPart of toolParts) {
       sessionEventService.append({
+        messageId: toolPart.messageId,
+        part: toolPart,
+        runId,
+        sessionId: toolPart.sessionId,
+        type: 'message.part.updated'
+      });
+      sessionEventService.append({
         error: reason,
         runId,
         sessionId: toolPart.sessionId,

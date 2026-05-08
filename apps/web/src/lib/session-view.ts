@@ -1,10 +1,4 @@
-import type {
-  MessageDto,
-  ResumeSessionDto,
-  SessionEventEnvelope,
-  SessionDto,
-  WorkspaceDto
-} from '@opencode/shared';
+import type { ResumeSessionDto, SessionEventEnvelope, SessionDto, WorkspaceDto } from '@opencode/shared';
 import type { WorkspaceTreeNodeDto } from './api';
 import type {
   MockDetailPane,
@@ -37,47 +31,6 @@ function formatTimestamp(timestamp: string) {
     minute: '2-digit',
     month: '2-digit'
   });
-}
-
-function getMessageBodyText(message: MessageDto) {
-  return message.content
-    .map((part) => {
-      if (
-        part.type === 'text' ||
-        part.type === 'reasoning' ||
-        part.type === 'summary'
-      ) {
-        return part.text;
-      }
-
-      if (part.type === 'patch') {
-        return JSON.stringify(part.files, null, 2);
-      }
-
-      if (part.type === 'tool') {
-        if (part.state.status === 'completed') {
-          return part.state.outputText;
-        }
-
-        if (part.state.status === 'error') {
-          return part.state.errorText;
-        }
-
-        return JSON.stringify(part.state.input, null, 2);
-      }
-
-      if (part.type === 'file') {
-        return part.url;
-      }
-
-      if (part.type === 'compaction') {
-        return part.reason;
-      }
-
-      return '';
-    })
-    .join('\n')
-    .trim();
 }
 
 function createTimelineItem(input: {
@@ -128,7 +81,6 @@ function toTimelineItems(entries: TimelineEntry[]) {
 
 export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
   const items: TimelineEntry[] = [];
-  const assistantItems = new Map<string, MockTimelineItem>();
 
   for (const envelope of events) {
     const time = formatTimestamp(envelope.createdAt);
@@ -137,73 +89,16 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
       case 'message.created': {
         const { message } = envelope.event;
 
-        if (message.role === 'assistant') {
-          const item = createTimelineEntry({
-            description: '',
-            id: message.id,
-            label: 'Assistant',
-            status: 'active',
-            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
-            time,
-            title: 'Assistant 正在响应',
-            type: 'message'
-          });
-
-          assistantItems.set(message.id, item.item);
-          items.push(item);
-          break;
-        }
-
-        items.push(
-          createTimelineEntry({
-            description: getMessageBodyText(message) || '无消息内容',
-            id: message.id,
-            label: message.role === 'user' ? 'User' : 'Message',
-            status: 'info',
-            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
-            time,
-            title: message.role === 'user' ? '用户消息' : '消息创建',
-            type: 'message'
-          })
-        );
-        break;
-      }
-      case 'message.delta': {
-        const assistantItem = assistantItems.get(envelope.event.messageId);
-
-        if (assistantItem) {
-          assistantItem.description += envelope.event.delta;
-        }
-
-        break;
-      }
-      case 'message.completed': {
-        const assistantItem = assistantItems.get(envelope.event.messageId);
-
-        if (assistantItem) {
-          assistantItem.status = 'success';
-          assistantItem.title = 'Assistant 响应完成';
-        }
-
-        break;
-      }
-      case 'message.cancelled': {
-        const assistantItem = assistantItems.get(envelope.event.messageId);
-
-        if (assistantItem) {
-          assistantItem.description ||= '本轮回复已取消';
-          assistantItem.status = 'warning';
-          assistantItem.title = 'Assistant 响应已取消';
-        } else {
+        if (message.role !== 'assistant') {
           items.push(
             createTimelineEntry({
-              description: '本轮回复已取消',
-              id: envelope.event.messageId,
-              label: 'Assistant',
-              status: 'warning',
+              description: '用户消息已提交，agent 即将处理。',
+              id: message.id,
+              label: 'User',
+              status: 'info',
               sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
               time,
-              title: 'Assistant 响应已取消',
+              title: '用户消息',
               type: 'message'
             })
           );
@@ -211,6 +106,40 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
 
         break;
       }
+      case 'message.completed': {
+        items.push(
+          createTimelineEntry({
+            description: 'Assistant 响应已完成。',
+            id: envelope.event.messageId,
+            label: 'Assistant',
+            status: 'success',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: 'Assistant 响应完成',
+            type: 'message'
+          })
+        );
+        break;
+      }
+      case 'message.cancelled': {
+        items.push(
+          createTimelineEntry({
+            description: '本轮回复已取消',
+            id: envelope.event.messageId,
+            label: 'Assistant',
+            status: 'warning',
+            sortKey: `${envelope.createdAt}:${String(envelope.sequenceNo).padStart(8, '0')}`,
+            time,
+            title: 'Assistant 响应已取消',
+            type: 'message'
+          })
+        );
+        break;
+      }
+      case 'message.part.created':
+      case 'message.part.delta':
+      case 'message.part.updated':
+        break;
       case 'run.created':
         items.push(
           createTimelineEntry({
@@ -402,69 +331,6 @@ export function buildTimelineItemsFromEvents(events: SessionEventEnvelope[]) {
   }
 
   return toTimelineItems(items);
-}
-
-export function buildTimelineItemsFromMessages(messages: MessageDto[]) {
-  return toTimelineItems(
-    messages.map((message, index) =>
-      createTimelineEntry({
-        description:
-          message.status === 'cancelled'
-            ? '本轮回复已取消'
-            : getMessageBodyText(message) || '无消息内容',
-        id: message.id,
-        label:
-          message.role === 'assistant'
-            ? 'Assistant'
-            : message.role === 'user'
-              ? 'User'
-              : 'Message',
-        status:
-          message.status === 'cancelled'
-            ? 'warning'
-            : message.role === 'assistant'
-              ? 'success'
-              : 'info',
-        sortKey: `${message.createdAt}:${String(index).padStart(8, '0')}`,
-        time: formatTimestamp(message.createdAt),
-        title:
-          message.status === 'cancelled'
-            ? 'Assistant 响应已取消'
-            : message.role === 'assistant'
-              ? 'Assistant 响应完成'
-              : message.role === 'user'
-                ? '用户消息'
-                : '消息创建',
-        type: 'message'
-      })
-    )
-  );
-}
-
-export function mergeTimelineItems(
-  persistedMessages: MockTimelineItem[],
-  liveEvents: MockTimelineItem[]
-) {
-  const merged = new Map<string, MockTimelineItem>();
-
-  for (const item of persistedMessages) {
-    merged.set(item.id, item);
-  }
-
-  for (const item of liveEvents) {
-    merged.set(item.id, item);
-  }
-
-  return [...merged.values()].sort((left, right) => {
-    const leftKey = left.sortKey ?? left.time;
-    const rightKey = right.sortKey ?? right.time;
-
-    if (leftKey === rightKey) {
-      return left.id.localeCompare(right.id);
-    }
-
-    return leftKey.localeCompare(rightKey);
-  });
 }
 
 function getSessionMode(status: SessionDto['status']): MockSessionView['mode'] {

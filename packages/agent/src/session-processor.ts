@@ -154,6 +154,10 @@ type AssistantMessageState = {
   toolParts: Extract<MessagePart, { type: 'tool' }>[];
 };
 
+function hasPartRunId(part: MessagePart): part is MessagePart & { runId?: string } {
+  return 'runId' in part;
+}
+
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : 'Unknown runtime error.';
 }
@@ -357,6 +361,55 @@ export class SessionProcessor {
     };
   }
 
+  private appendPartCreatedEvent(input: {
+    messageId: string;
+    part: MessagePart;
+    runId?: string;
+    sessionId: string;
+  }) {
+    this.deps.appendSessionEvent({
+      messageId: input.messageId,
+      part: input.part,
+      runId: input.runId ?? (hasPartRunId(input.part) ? input.part.runId : undefined),
+      sessionId: input.sessionId,
+      type: 'message.part.created'
+    });
+  }
+
+  private appendPartDeltaEvent(input: {
+    delta: string;
+    field: 'reasoning.text' | 'text';
+    messageId: string;
+    partId: string;
+    runId?: string;
+    sessionId: string;
+  }) {
+    this.deps.appendSessionEvent({
+      delta: input.delta,
+      field: input.field,
+      messageId: input.messageId,
+      partId: input.partId,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      type: 'message.part.delta'
+    });
+  }
+
+  private appendPartUpdatedEvent(input: {
+    messageId: string;
+    part: MessagePart;
+    runId?: string;
+    sessionId: string;
+  }) {
+    this.deps.appendSessionEvent({
+      messageId: input.messageId,
+      part: input.part,
+      runId: input.runId ?? (hasPartRunId(input.part) ? input.part.runId : undefined),
+      sessionId: input.sessionId,
+      type: 'message.part.updated'
+    });
+  }
+
   private async applyTextDelta(
     input: Pick<ProcessTurnInput, 'runId' | 'sessionId'>,
     state: AssistantMessageState,
@@ -382,6 +435,12 @@ export class SessionProcessor {
         }) as Extract<MessagePart, { type: 'text' }>;
 
         state.textParts.set(streamPartId, part);
+        this.appendPartCreatedEvent({
+          messageId: message.id,
+          part,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
       } else {
         const updated = this.deps.updateMessagePart({
           ...existing,
@@ -390,16 +449,17 @@ export class SessionProcessor {
 
         if (updated) {
           state.textParts.set(streamPartId, updated);
+          this.appendPartDeltaEvent({
+            delta,
+            field: 'text',
+            messageId: message.id,
+            partId: updated.id,
+            runId: input.runId,
+            sessionId: input.sessionId
+          });
         }
       }
 
-      this.deps.appendSessionEvent({
-        delta,
-        messageId: message.id,
-        runId: input.runId,
-        sessionId: input.sessionId,
-        type: 'message.delta'
-      });
     });
   }
 
@@ -416,28 +476,44 @@ export class SessionProcessor {
     );
     const existing = state.reasoningParts.get(streamPartId);
 
-    if (!existing) {
-      const part = this.deps.appendMessagePart({
-        messageId: message.id,
-        order: state.nextOrder++,
-        runId: input.runId,
-        sessionId: input.sessionId,
-        text: delta,
-        type: 'reasoning'
-      }) as Extract<MessagePart, { type: 'reasoning' }>;
+    this.persist(() => {
+      if (!existing) {
+        const part = this.deps.appendMessagePart({
+          messageId: message.id,
+          order: state.nextOrder++,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          text: delta,
+          type: 'reasoning'
+        }) as Extract<MessagePart, { type: 'reasoning' }>;
 
-      state.reasoningParts.set(streamPartId, part);
-      return;
-    }
+        state.reasoningParts.set(streamPartId, part);
+        this.appendPartCreatedEvent({
+          messageId: message.id,
+          part,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
+        return;
+      }
 
-    const updated = this.deps.updateMessagePart({
-      ...existing,
-      text: existing.text + delta
-    }) as Extract<MessagePart, { type: 'reasoning' }> | null;
+      const updated = this.deps.updateMessagePart({
+        ...existing,
+        text: existing.text + delta
+      }) as Extract<MessagePart, { type: 'reasoning' }> | null;
 
-    if (updated) {
-      state.reasoningParts.set(streamPartId, updated);
-    }
+      if (updated) {
+        state.reasoningParts.set(streamPartId, updated);
+        this.appendPartDeltaEvent({
+          delta,
+          field: 'reasoning.text',
+          messageId: message.id,
+          partId: updated.id,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
+      }
+    });
   }
 
   private async persistToolCall(
@@ -497,8 +573,8 @@ export class SessionProcessor {
       type: 'tool',
       updatedAt: now
     };
-    const { part: createdPart, toolCall } =
-      this.deps.createToolPartWithToolCall({
+    const { part: createdPart, toolCall } = this.persist(() => {
+      const created = this.deps.createToolPartWithToolCall({
         part: toolPart,
         toolCall: {
           createdAt: now,
@@ -520,6 +596,16 @@ export class SessionProcessor {
           updatedAt: now
         }
       });
+
+      this.appendPartCreatedEvent({
+        messageId: message.id,
+        part: created.part,
+        runId: input.runId,
+        sessionId: input.sessionId
+      });
+
+      return created;
+    });
 
     state.toolParts.push(createdPart);
     state.toolCalls.set(createdPart.id, toolCall);
@@ -609,6 +695,12 @@ export class SessionProcessor {
             status: 'failed',
             updatedAt: completedAt
           }
+        });
+        this.appendPartUpdatedEvent({
+          messageId: failedPart.messageId,
+          part: failedPart,
+          runId,
+          sessionId
         });
         this.deps.appendSessionEvent({
           error: errorText,

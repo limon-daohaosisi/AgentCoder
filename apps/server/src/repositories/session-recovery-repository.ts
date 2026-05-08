@@ -630,6 +630,22 @@ export const sessionRecoveryRepository = {
             toolFailedByPart.add(interruptedPart.toolCallId);
             appendRecoveryEvent(envelopes, {
               createdAt: input.recoveredAt,
+              entityId: interruptedPart.id,
+              entityType: 'message_part',
+              event: {
+                messageId: interruptedPart.messageId,
+                part: interruptedPart,
+                runId,
+                sessionId: interruptedPart.sessionId,
+                type: 'message.part.updated'
+              },
+              headline: 'Message part updated',
+              level: 'warning',
+              runId,
+              sessionId: interruptedPart.sessionId
+            });
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
               detailText: input.errorText,
               entityId: interruptedPart.toolCallId,
               entityType: 'tool_call',
@@ -930,6 +946,22 @@ export const sessionRecoveryRepository = {
               .run();
 
             toolFailedByPart.add(interruptedPart.toolCallId);
+            appendRecoveryEvent(envelopes, {
+              createdAt: input.recoveredAt,
+              entityId: interruptedPart.id,
+              entityType: 'message_part',
+              event: {
+                messageId: interruptedPart.messageId,
+                part: interruptedPart,
+                runId,
+                sessionId: interruptedPart.sessionId,
+                type: 'message.part.updated'
+              },
+              headline: 'Message part updated',
+              level: 'warning',
+              runId,
+              sessionId: interruptedPart.sessionId
+            });
             appendRecoveryEvent(envelopes, {
               createdAt: input.recoveredAt,
               detailText: input.errorText,

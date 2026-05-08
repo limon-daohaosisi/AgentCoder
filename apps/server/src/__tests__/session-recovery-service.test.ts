@@ -365,6 +365,7 @@ test('startup recovery converges interrupted running runs to blocked run and idl
       .map((envelope) => envelope.event.type),
     [
       'message.cancelled',
+      'message.part.updated',
       'tool.failed',
       'run.blocked',
       'session.recovered',

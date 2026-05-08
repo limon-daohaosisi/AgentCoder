@@ -153,7 +153,76 @@ test('SessionProcessor persists streamed assistant text and completes the turn',
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['message.created', 'message.delta', 'message.delta', 'message.completed']
+    [
+      'message.created',
+      'message.part.created',
+      'message.part.delta',
+      'message.completed'
+    ]
+  );
+});
+
+test('SessionProcessor emits reasoning part events for reasoning deltas', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            { id: 'reasoning-1', text: 'Think', type: 'reasoning-delta' },
+            { id: 'reasoning-1', text: ' harder', type: 'reasoning-delta' },
+            {
+              finishReason: 'stop',
+              response: {
+                id: 'resp-reasoning',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 2,
+                totalTokens: 3
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest(),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.deepEqual(result, {
+    finishReason: 'stop',
+    kind: 'completed'
+  });
+
+  const [message] = messageService.listMessages(session.id);
+
+  assert.equal(message?.content[0]?.type, 'reasoning');
+  assert.equal(
+    message?.content[0]?.type === 'reasoning' ? message.content[0].text : undefined,
+    'Think harder'
+  );
+  assert.deepEqual(
+    sessionEventService
+      .listAfterSequence(session.id, 0)
+      .map((envelope) => envelope.event.type),
+    [
+      'message.created',
+      'message.part.created',
+      'message.part.delta',
+      'message.completed'
+    ]
   );
 });
 
@@ -227,7 +296,7 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['message.created', 'message.completed']
+    ['message.created', 'message.part.created', 'message.completed']
   );
 });
 
@@ -299,7 +368,7 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['message.created', 'message.completed']
+    ['message.created', 'message.part.created', 'message.completed']
   );
 });
 

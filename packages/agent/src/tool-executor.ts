@@ -203,6 +203,20 @@ function formatError(error: unknown) {
 export class ToolExecutor {
   constructor(private readonly deps: ToolExecutorDeps) {}
 
+  private appendPartUpdatedEvent(input: {
+    part: Extract<MessagePart, { type: 'tool' }>;
+    runId?: string;
+    sessionId: string;
+  }) {
+    this.deps.appendSessionEvent({
+      messageId: input.part.messageId,
+      part: input.part,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      type: 'message.part.updated'
+    });
+  }
+
   async executePendingToolParts(input: {
     parts: Extract<MessagePart, { type: 'tool' }>[];
     runId: string;
@@ -275,7 +289,7 @@ export class ToolExecutor {
       };
 
       this.persist(() => {
-        this.deps.updateToolPartWithToolCall({
+        const { part: updatedPart } = this.deps.updateToolPartWithToolCall({
           part: rejectedPart,
           toolCall: {
             completedAt,
@@ -285,6 +299,11 @@ export class ToolExecutor {
             status: 'failed',
             updatedAt: completedAt
           }
+        });
+        this.appendPartUpdatedEvent({
+          part: updatedPart,
+          runId: input.runId,
+          sessionId: input.sessionId
         });
         this.deps.appendSessionEvent({
           error: 'Approval rejected by user',
@@ -324,7 +343,7 @@ export class ToolExecutor {
     };
 
     this.persist(() => {
-      this.deps.updateToolPartWithToolCall({
+      const { part: updatedPart } = this.deps.updateToolPartWithToolCall({
         part: runningPart,
         toolCall: {
           id: input.part.toolCallId,
@@ -332,6 +351,11 @@ export class ToolExecutor {
           status: 'running',
           updatedAt: startedAt
         }
+      });
+      this.appendPartUpdatedEvent({
+        part: updatedPart,
+        runId: input.runId,
+        sessionId: input.sessionId
       });
       this.deps.appendSessionEvent({
         runId: input.runId,
@@ -374,7 +398,7 @@ export class ToolExecutor {
       };
 
       this.persist(() => {
-        const { toolCall: completedToolCall } =
+        const { part: updatedPart, toolCall: completedToolCall } =
           this.deps.updateToolPartWithToolCall({
             part: completedPart,
             toolCall: {
@@ -386,6 +410,12 @@ export class ToolExecutor {
               updatedAt: completedAt
             }
           });
+
+        this.appendPartUpdatedEvent({
+          part: updatedPart,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
 
         this.deps.appendSessionEvent({
           runId: input.runId,
@@ -414,7 +444,7 @@ export class ToolExecutor {
       };
 
       this.persist(() => {
-        this.deps.updateToolPartWithToolCall({
+        const { part: updatedPart } = this.deps.updateToolPartWithToolCall({
           part: failedPart,
           toolCall: {
             completedAt,
@@ -425,6 +455,11 @@ export class ToolExecutor {
             status: 'failed',
             updatedAt: completedAt
           }
+        });
+        this.appendPartUpdatedEvent({
+          part: updatedPart,
+          runId: input.runId,
+          sessionId: input.sessionId
         });
         this.deps.appendSessionEvent({
           error: errorText,

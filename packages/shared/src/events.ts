@@ -2,8 +2,11 @@ import type {
   AgentRunDto,
   ApprovalDto,
   MessageDto,
+  MessagePart,
   ToolCallDto
 } from './dto.js';
+
+export type MessagePartDeltaField = 'text' | 'reasoning.text';
 
 export type SessionEvent =
   | { type: 'run.created'; sessionId: string; run: AgentRunDto }
@@ -18,10 +21,26 @@ export type SessionEvent =
   | { type: 'run.failed'; sessionId: string; run: AgentRunDto; error: string }
   | { type: 'message.created'; sessionId: string; message: MessageDto }
   | {
-      type: 'message.delta';
+      type: 'message.part.created';
       sessionId: string;
       messageId: string;
+      part: MessagePart;
+      runId?: string;
+    }
+  | {
+      type: 'message.part.delta';
+      sessionId: string;
+      messageId: string;
+      partId: string;
+      field: MessagePartDeltaField;
       delta: string;
+      runId?: string;
+    }
+  | {
+      type: 'message.part.updated';
+      sessionId: string;
+      messageId: string;
+      part: MessagePart;
       runId?: string;
     }
   | {

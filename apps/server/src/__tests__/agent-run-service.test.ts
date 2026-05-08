@@ -222,7 +222,13 @@ test('cancelCurrentRun finalizes open running state and returns session to idle'
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['message.cancelled', 'tool.failed', 'run.cancelled', 'session.updated']
+    [
+      'message.cancelled',
+      'message.part.updated',
+      'tool.failed',
+      'run.cancelled',
+      'session.updated'
+    ]
   );
 });
 
@@ -264,7 +270,9 @@ test('cancelCurrentRun rejects pending approval and remains idempotent', () => {
     [
       'approval.resolved',
       'message.cancelled',
+      'message.part.updated',
       'tool.failed',
+      'message.part.updated',
       'tool.failed',
       'run.cancelled',
       'session.updated'

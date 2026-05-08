@@ -101,3 +101,36 @@ test('sessionEventService persists derived run ids for run-owned events', () => 
 
   assert.equal(row?.run_id, run.id);
 });
+
+test('sessionEventService persists derived run ids for message part events', () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Persist run id on message part events',
+    workspaceId: workspace.id
+  });
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const message = messageService.createMessage({
+    content: [{ text: 'hello', type: 'text' }],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id
+  });
+  const part = message.content[0]!;
+  const envelope = sessionEventService.append({
+    messageId: message.id,
+    part,
+    runId: run.id,
+    sessionId: session.id,
+    type: 'message.part.created'
+  });
+
+  const row = sqlite
+    .prepare('SELECT run_id FROM session_events WHERE id = ?')
+    .get(`${session.id}:${envelope.sequenceNo}`) as
+    | { run_id: null | string }
+    | undefined;
+
+  assert.equal(row?.run_id, run.id);
+});

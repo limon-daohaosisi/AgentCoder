@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-router';
 import { AppShell } from './components/app-shell';
 import { Composer } from './features/chat/composer';
+import { MessageList } from './features/chat/message-list';
 import { TimelinePanel } from './features/chat/timeline-panel';
 import { DetailPane } from './features/details/detail-pane';
 import { SessionList } from './features/sessions/session-list';
@@ -31,13 +32,12 @@ import {
 } from './lib/api';
 import {
   buildTimelineItemsFromEvents,
-  buildTimelineItemsFromMessages,
   buildSessionView,
   buildWorkspaceDetailPane,
   buildWorkspaceTree,
-  mergeTimelineItems,
   formatSessionTimestamp
 } from './lib/session-view';
+import { projectMessages } from './lib/message-projection';
 
 const MODEL_LABEL = 'gpt-4.1-mini';
 
@@ -389,20 +389,14 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
   const currentSessionView = currentSession
     ? buildSessionView(currentSession, fileTree, resumeQuery.data)
     : null;
+  const liveMessages = projectMessages(messagesQuery.data ?? [], stream.events);
   const liveTimeline = buildTimelineItemsFromEvents(stream.events);
-  const persistedMessageTimeline = buildTimelineItemsFromMessages(
-    messagesQuery.data ?? []
-  );
   const detailPaneData =
     currentSessionView?.detailPane ??
     buildWorkspaceDetailPane(workspace, fileTree);
-  const mergedTimeline = mergeTimelineItems(
-    persistedMessageTimeline,
-    liveTimeline
-  );
   const timelineItems =
-    mergedTimeline.length > 0
-      ? mergedTimeline
+    liveTimeline.length > 0
+      ? liveTimeline
       : (currentSessionView?.timeline ?? []);
   const canSubmitMessage =
     currentSession?.status === 'planning' || currentSession?.status === 'idle';
@@ -473,6 +467,40 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
               <TaskBoard session={currentSessionView} />
 
               <section className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
+                    Session Messages
+                  </p>
+                  <h2 className="text-lg font-semibold text-ink">消息与 Part 流</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    这里直接消费 `MessageDto.content`，会实时显示文本、推理、工具、附件和 patch part。
+                  </p>
+                </div>
+
+                <div className="mt-5">
+                  <MessageList messages={liveMessages} />
+                </div>
+
+                {cancelCurrentRunMutation.isError ? (
+                  <p className="mt-4 text-sm text-red-700">
+                    {getErrorMessage(cancelCurrentRunMutation.error)}
+                  </p>
+                ) : null}
+                {submitMessageMutation.isError ? (
+                  <p className="mt-4 text-sm text-red-700">
+                    {getErrorMessage(submitMessageMutation.error)}
+                  </p>
+                ) : null}
+                <Composer
+                  defaultValue={currentSessionView.composerValue}
+                  disabled={isComposerDisabled}
+                  hint={currentSessionView.composerHint}
+                  isSubmitting={submitMessageMutation.isPending}
+                  onSubmit={(content) => submitMessageMutation.mutate(content)}
+                />
+              </section>
+
+              <section className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
@@ -504,23 +532,6 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                 </div>
 
                 <TimelinePanel items={timelineItems} />
-                {cancelCurrentRunMutation.isError ? (
-                  <p className="mt-4 text-sm text-red-700">
-                    {getErrorMessage(cancelCurrentRunMutation.error)}
-                  </p>
-                ) : null}
-                {submitMessageMutation.isError ? (
-                  <p className="mt-4 text-sm text-red-700">
-                    {getErrorMessage(submitMessageMutation.error)}
-                  </p>
-                ) : null}
-                <Composer
-                  defaultValue={currentSessionView.composerValue}
-                  disabled={isComposerDisabled}
-                  hint={currentSessionView.composerHint}
-                  isSubmitting={submitMessageMutation.isPending}
-                  onSubmit={(content) => submitMessageMutation.mutate(content)}
-                />
               </section>
             </>
           ) : (

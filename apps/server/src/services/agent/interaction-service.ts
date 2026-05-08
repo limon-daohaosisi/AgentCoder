@@ -187,7 +187,7 @@ export class SessionInteractionService {
             throw new ServiceError('Failed to persist approval decision.', 500);
           }
 
-          const updatedToolCall =
+          const rejectedToolUpdate =
             input.decision === 'rejected'
               ? toolStateService.updateToolPartWithToolCall({
                   part: {
@@ -209,8 +209,8 @@ export class SessionInteractionService {
                     status: 'failed',
                     updatedAt: now
                   }
-                }).toolCall
-              : toolCall;
+                })
+              : null;
 
           const updatedSession = sessionService.updateSessionRuntimeState({
             lastCheckpoint: null,
@@ -228,6 +228,13 @@ export class SessionInteractionService {
           });
 
           if (input.decision === 'rejected') {
+            sessionEventService.append({
+              messageId: rejectedToolUpdate!.part.messageId,
+              part: rejectedToolUpdate!.part,
+              runId,
+              sessionId: approval.sessionId,
+              type: 'message.part.updated'
+            });
             sessionEventService.append({
               error: 'Approval rejected by user',
               runId,
@@ -251,7 +258,7 @@ export class SessionInteractionService {
               approval: updatedApproval,
               ...(input.decision === 'approved' ? { part: resume.part } : {}),
               runId,
-              toolCall: updatedToolCall
+              toolCall: rejectedToolUpdate?.toolCall ?? toolCall
             },
             runId
           };

@@ -20,6 +20,12 @@ function deriveCreatedAt(event: SessionEvent) {
       return event.run.cancelledAt ?? event.run.endedAt ?? event.run.updatedAt;
     case 'message.created':
       return event.message.createdAt;
+    case 'message.part.created':
+      return event.part.createdAt;
+    case 'message.part.updated':
+      return event.part.updatedAt;
+    case 'message.part.delta':
+      return new Date().toISOString();
     case 'approval.created':
       return event.approval.createdAt;
     case 'tool.completed':
@@ -97,6 +103,25 @@ function deriveMetadata(event: SessionEvent) {
         entityId: event.message.id,
         entityType: 'message',
         headline: `${event.message.role} message created`
+      };
+    case 'message.part.created':
+      return {
+        entityId: event.part.id,
+        entityType: 'message_part',
+        headline: 'Message part created'
+      };
+    case 'message.part.delta':
+      return {
+        detailText: event.field,
+        entityId: event.partId,
+        entityType: 'message_part',
+        headline: 'Message part delta'
+      };
+    case 'message.part.updated':
+      return {
+        entityId: event.part.id,
+        entityType: 'message_part',
+        headline: 'Message part updated'
       };
     case 'message.cancelled':
       return {
@@ -189,6 +214,18 @@ function deriveRunId(event: SessionEvent) {
 
   if (event.type === 'message.created') {
     return event.message.runId;
+  }
+
+  if (event.type === 'message.part.created' || event.type === 'message.part.updated') {
+    const messageRunId =
+      'runId' in event.part && typeof event.part.runId === 'string'
+        ? event.part.runId
+        : undefined;
+    return event.runId ?? messageRunId;
+  }
+
+  if (event.type === 'message.part.delta') {
+    return event.runId;
   }
 
   if (event.type === 'tool.pending' || event.type === 'tool.completed') {

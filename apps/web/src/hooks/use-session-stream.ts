@@ -11,7 +11,9 @@ const SESSION_EVENT_NAMES = [
   'run.blocked',
   'run.failed',
   'message.created',
-  'message.delta',
+  'message.part.created',
+  'message.part.delta',
+  'message.part.updated',
   'message.completed',
   'message.cancelled',
   'tool.pending',
@@ -26,7 +28,7 @@ const SESSION_EVENT_NAMES = [
 ] as const;
 
 function isCacheRelevantEvent(event: SessionEventEnvelope['event']) {
-  return event.type !== 'message.delta';
+  return !event.type.startsWith('message.');
 }
 
 export function useSessionStream(sessionId?: string, workspaceId?: string) {
@@ -62,16 +64,10 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
         });
         setStatus('connected');
 
-        if (isCacheRelevantEvent(envelope.event)) {
-          if (envelope.event.type.startsWith('message.')) {
+          if (isCacheRelevantEvent(envelope.event)) {
             void queryClient.invalidateQueries({
-              queryKey: ['messages', sessionId]
+              queryKey: ['resume-session', sessionId]
             });
-          }
-
-          void queryClient.invalidateQueries({
-            queryKey: ['resume-session', sessionId]
-          });
           void queryClient.invalidateQueries({
             queryKey: ['session', sessionId]
           });
