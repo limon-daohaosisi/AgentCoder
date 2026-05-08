@@ -1,4 +1,9 @@
-import type { ResumeSessionDto, SessionEventEnvelope, SessionDto, WorkspaceDto } from '@opencode/shared';
+import type {
+  ResumeSessionDto,
+  SessionEventEnvelope,
+  SessionDto,
+  WorkspaceDto
+} from '@opencode/shared';
 import type { WorkspaceTreeNodeDto } from './api';
 import type {
   MockDetailPane,

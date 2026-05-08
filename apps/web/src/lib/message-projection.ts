@@ -1,4 +1,8 @@
-import type { MessageDto, MessagePart, SessionEventEnvelope } from '@opencode/shared';
+import type {
+  MessageDto,
+  MessagePart,
+  SessionEventEnvelope
+} from '@opencode/shared';
 
 type EventMarker = {
   createdAt: string;
@@ -35,7 +39,10 @@ function markPartEvent(
   };
 }
 
-function upsertMessage(messages: ProjectedMessage[], nextMessage: ProjectedMessage) {
+function upsertMessage(
+  messages: ProjectedMessage[],
+  nextMessage: ProjectedMessage
+) {
   const index = messages.findIndex((message) => message.id === nextMessage.id);
 
   if (index === -1) {
@@ -121,11 +128,10 @@ function projectEvent(
         markPartEvent(
           {
             ...existing,
-            content: [...existing.content, event.part].sort(
-              (left, right) =>
-                left.order === right.order
-                  ? left.id.localeCompare(right.id)
-                  : left.order - right.order
+            content: [...existing.content, event.part].sort((left, right) =>
+              left.order === right.order
+                ? left.id.localeCompare(right.id)
+                : left.order - right.order
             )
           },
           event.part.id,
@@ -199,29 +205,27 @@ function projectEvent(
         )
       );
     }
-    case 'message.completed':
-      {
-        const event = envelope.event;
-        return messages.map((message) =>
-          message.id === event.messageId
-            ? { ...message, status: 'completed', updatedAt: envelope.createdAt }
-            : message
-        );
-      }
-    case 'message.cancelled':
-      {
-        const event = envelope.event;
-        return messages.map((message) =>
-          message.id === event.messageId
-            ? {
-                ...message,
-                finishReason: 'cancelled',
-                status: 'cancelled',
-                updatedAt: envelope.createdAt
-              }
-            : message
-        );
-      }
+    case 'message.completed': {
+      const event = envelope.event;
+      return messages.map((message) =>
+        message.id === event.messageId
+          ? { ...message, status: 'completed', updatedAt: envelope.createdAt }
+          : message
+      );
+    }
+    case 'message.cancelled': {
+      const event = envelope.event;
+      return messages.map((message) =>
+        message.id === event.messageId
+          ? {
+              ...message,
+              finishReason: 'cancelled',
+              status: 'cancelled',
+              updatedAt: envelope.createdAt
+            }
+          : message
+      );
+    }
     default:
       return messages;
   }
@@ -243,5 +247,7 @@ export function projectMessages(
 
   const projected = events.reduce(projectEvent, initialMessages);
 
-  return sortMessages(projected).map(({ __partEventMarks: _marks, ...message }) => message);
+  return sortMessages(projected).map(
+    ({ __partEventMarks: _marks, ...message }) => message
+  );
 }

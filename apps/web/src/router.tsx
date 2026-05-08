@@ -471,9 +471,13 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
                     Session Messages
                   </p>
-                  <h2 className="text-lg font-semibold text-ink">消息与 Part 流</h2>
+                  <h2 className="text-lg font-semibold text-ink">
+                    消息与 Part 流
+                  </h2>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    这里直接消费 `MessageDto.content`，会实时显示文本、推理、工具、附件和 patch part。
+                    这里直接消费
+                    `MessageDto.content`，会实时显示文本、推理、工具、附件和
+                    patch part。
                   </p>
                 </div>
 

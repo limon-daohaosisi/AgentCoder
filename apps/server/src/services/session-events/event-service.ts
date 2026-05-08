@@ -216,7 +216,10 @@ function deriveRunId(event: SessionEvent) {
     return event.message.runId;
   }
 
-  if (event.type === 'message.part.created' || event.type === 'message.part.updated') {
+  if (
+    event.type === 'message.part.created' ||
+    event.type === 'message.part.updated'
+  ) {
     const messageRunId =
       'runId' in event.part && typeof event.part.runId === 'string'
         ? event.part.runId

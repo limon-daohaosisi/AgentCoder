@@ -154,7 +154,9 @@ type AssistantMessageState = {
   toolParts: Extract<MessagePart, { type: 'tool' }>[];
 };
 
-function hasPartRunId(part: MessagePart): part is MessagePart & { runId?: string } {
+function hasPartRunId(
+  part: MessagePart
+): part is MessagePart & { runId?: string } {
   return 'runId' in part;
 }
 
@@ -370,7 +372,9 @@ export class SessionProcessor {
     this.deps.appendSessionEvent({
       messageId: input.messageId,
       part: input.part,
-      runId: input.runId ?? (hasPartRunId(input.part) ? input.part.runId : undefined),
+      runId:
+        input.runId ??
+        (hasPartRunId(input.part) ? input.part.runId : undefined),
       sessionId: input.sessionId,
       type: 'message.part.created'
     });
@@ -404,7 +408,9 @@ export class SessionProcessor {
     this.deps.appendSessionEvent({
       messageId: input.messageId,
       part: input.part,
-      runId: input.runId ?? (hasPartRunId(input.part) ? input.part.runId : undefined),
+      runId:
+        input.runId ??
+        (hasPartRunId(input.part) ? input.part.runId : undefined),
       sessionId: input.sessionId,
       type: 'message.part.updated'
     });
@@ -459,7 +465,6 @@ export class SessionProcessor {
           });
         }
       }
-
     });
   }
 

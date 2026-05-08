@@ -32,20 +32,32 @@ function statusBadge(status: MessageDto['status']) {
   }
 }
 
-function PartBanner({ children, tone }: { children: string; tone: 'amber' | 'slate' }) {
+function PartBanner({
+  children,
+  tone
+}: {
+  children: string;
+  tone: 'amber' | 'slate';
+}) {
   const className =
     tone === 'amber'
       ? 'border-amber-200 bg-amber-50 text-amber-900'
       : 'border-slate-200 bg-slate-50 text-slate-700';
 
   return (
-    <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${className}`}>
+    <div
+      className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${className}`}
+    >
       {children}
     </div>
   );
 }
 
-function ToolPartCard({ part }: { part: Extract<MessagePart, { type: 'tool' }> }) {
+function ToolPartCard({
+  part
+}: {
+  part: Extract<MessagePart, { type: 'tool' }>;
+}) {
   const statusClassName =
     part.state.status === 'pending'
       ? 'bg-amber-100 text-amber-800'
@@ -62,9 +74,13 @@ function ToolPartCard({ part }: { part: Extract<MessagePart, { type: 'tool' }> }
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
             Tool
           </p>
-          <h4 className="mt-1 text-sm font-semibold text-ink">{part.toolName}</h4>
+          <h4 className="mt-1 text-sm font-semibold text-ink">
+            {part.toolName}
+          </h4>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClassName}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClassName}`}
+        >
           {part.state.status}
         </span>
       </div>
@@ -104,7 +120,11 @@ function ToolPartCard({ part }: { part: Extract<MessagePart, { type: 'tool' }> }
   );
 }
 
-function FilePartCard({ part }: { part: Extract<MessagePart, { type: 'file' }> }) {
+function FilePartCard({
+  part
+}: {
+  part: Extract<MessagePart, { type: 'file' }>;
+}) {
   return (
     <article className="rounded-[24px] border border-sand bg-mist/80 p-4 text-sm text-slate-700">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -114,14 +134,21 @@ function FilePartCard({ part }: { part: Extract<MessagePart, { type: 'file' }> }
         {part.filename ?? part.url.split('/').at(-1) ?? '附件'}
       </h4>
       <p className="mt-2 text-xs text-slate-500">{part.mime}</p>
-      <a className="mt-3 inline-flex text-sm font-medium text-ember" href={part.url}>
+      <a
+        className="mt-3 inline-flex text-sm font-medium text-ember"
+        href={part.url}
+      >
         {part.url}
       </a>
     </article>
   );
 }
 
-function PatchPartCard({ part }: { part: Extract<MessagePart, { type: 'patch' }> }) {
+function PatchPartCard({
+  part
+}: {
+  part: Extract<MessagePart, { type: 'patch' }>;
+}) {
   return (
     <article className="rounded-[24px] border border-sand bg-mist/80 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -164,7 +191,9 @@ function MessagePartRenderer({ part }: { part: MessagePart }) {
     case 'summary':
       return <PartBanner tone="amber">{part.text}</PartBanner>;
     case 'compaction':
-      return <PartBanner tone="slate">{`上下文已压缩：${part.reason}`}</PartBanner>;
+      return (
+        <PartBanner tone="slate">{`上下文已压缩：${part.reason}`}</PartBanner>
+      );
     default:
       return null;
   }
@@ -217,7 +246,8 @@ export function MessageList({ messages }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="rounded-[24px] border border-dashed border-sand bg-mist/60 p-5 text-sm leading-6 text-slate-600">
-        还没有消息。提交一个 prompt 之后，assistant 的文本、推理、工具和附件 part 会在这里实时显示。
+        还没有消息。提交一个 prompt 之后，assistant 的文本、推理、工具和附件
+        part 会在这里实时显示。
       </div>
     );
   }

@@ -64,10 +64,10 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
         });
         setStatus('connected');
 
-          if (isCacheRelevantEvent(envelope.event)) {
-            void queryClient.invalidateQueries({
-              queryKey: ['resume-session', sessionId]
-            });
+        if (isCacheRelevantEvent(envelope.event)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['resume-session', sessionId]
+          });
           void queryClient.invalidateQueries({
             queryKey: ['session', sessionId]
           });

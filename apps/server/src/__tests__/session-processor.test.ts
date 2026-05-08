@@ -210,7 +210,9 @@ test('SessionProcessor emits reasoning part events for reasoning deltas', async 
 
   assert.equal(message?.content[0]?.type, 'reasoning');
   assert.equal(
-    message?.content[0]?.type === 'reasoning' ? message.content[0].text : undefined,
+    message?.content[0]?.type === 'reasoning'
+      ? message.content[0].text
+      : undefined,
     'Think harder'
   );
   assert.deepEqual(
