@@ -16,7 +16,27 @@ table "tool_calls" {
     null = true
   }
 
+  column "run_id" {
+    type = text
+    null = true
+  }
+
   column "message_id" {
+    type = text
+    null = true
+  }
+
+  column "message_part_id" {
+    type = text
+    null = true
+  }
+
+  column "model_tool_call_id" {
+    type = text
+    null = true
+  }
+
+  column "provider_metadata_json" {
     type = text
     null = true
   }
@@ -88,9 +108,21 @@ table "tool_calls" {
     on_delete   = SET_NULL
   }
 
+  foreign_key "tool_calls_run_id_fkey" {
+    columns     = [column.run_id]
+    ref_columns = [table.agent_runs.column.id]
+    on_delete   = SET_NULL
+  }
+
   foreign_key "tool_calls_message_id_fkey" {
     columns     = [column.message_id]
     ref_columns = [table.messages.column.id]
+    on_delete   = SET_NULL
+  }
+
+  foreign_key "tool_calls_message_part_id_fkey" {
+    columns     = [column.message_part_id]
+    ref_columns = [table.message_parts.column.id]
     on_delete   = SET_NULL
   }
 
@@ -99,7 +131,7 @@ table "tool_calls" {
   }
 
   check "tool_calls_valid_status" {
-    expr = "status IN ('pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed')"
+    expr = "status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed')"
   }
 
   check "tool_calls_valid_requires_approval" {
@@ -112,5 +144,13 @@ table "tool_calls" {
 
   index "idx_tool_calls_task_status" {
     columns = [column.task_id, column.status]
+  }
+
+  index "idx_tool_calls_message_part_id" {
+    columns = [column.message_part_id]
+  }
+
+  index "idx_tool_calls_run_status" {
+    columns = [column.run_id, column.status]
   }
 }

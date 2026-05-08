@@ -54,11 +54,21 @@ export async function buildWriteFileApproval(
 
 export async function executeWriteFile(
   input: WriteFileToolInput,
-  workspaceRoot: string
+  workspaceRoot: string,
+  options: { signal?: AbortSignal } = {}
 ) {
+  if (options.signal?.aborted) {
+    throw new Error('Run cancelled by user');
+  }
+
   const absolutePath = resolveWorkspacePath(workspaceRoot, input.path);
 
   await mkdir(path.dirname(absolutePath), { recursive: true });
+
+  if (options.signal?.aborted) {
+    throw new Error('Run cancelled by user');
+  }
+
   await writeFile(absolutePath, input.content, 'utf8');
 
   return {

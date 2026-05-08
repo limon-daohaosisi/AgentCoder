@@ -1,6 +1,7 @@
 import {
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
@@ -27,13 +28,12 @@ export function createServerTestEnvironment(prefix: string) {
     'export const ok = true;\n'
   );
 
-  const migrationSql = readFileSync(
-    path.join(
-      repoRoot,
-      'packages/db/migrations/20260330144844_init_schema.sql'
-    ),
-    'utf8'
-  );
+  const migrationsDir = path.join(repoRoot, 'packages/db/migrations');
+  const migrationSql = readdirSync(migrationsDir)
+    .filter((filename) => filename.endsWith('.sql'))
+    .sort()
+    .map((filename) => readFileSync(path.join(migrationsDir, filename), 'utf8'))
+    .join('\n');
 
   return {
     cleanup() {

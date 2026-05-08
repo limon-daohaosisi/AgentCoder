@@ -1,20 +1,19 @@
 import {
   buildSessionCheckpoint,
-  getCheckpointCallId,
-  getCheckpointPreviousResponseId,
   parseSessionCheckpoint
 } from '@opencode/agent';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseLastEventId, writeEnvelope } from '../lib/sse.js';
 
-test('checkpoint helpers preserve OpenAI continuation metadata', () => {
+test('checkpoint helpers preserve part-level approval resume metadata', () => {
   const checkpoint = buildSessionCheckpoint({
     approvalId: 'approval-1',
-    callId: 'call-1',
     kind: 'waiting_approval',
+    messageId: 'message-1',
+    modelToolCallId: 'model-call-1',
     note: 'Waiting for approval',
-    previousResponseId: 'resp-1',
+    partId: 'part-1',
     taskId: 'task-1',
     toolCallId: 'tool-1',
     updatedAt: '2026-04-21T10:00:00.000Z'
@@ -23,19 +22,14 @@ test('checkpoint helpers preserve OpenAI continuation metadata', () => {
   assert.deepEqual(checkpoint, {
     approvalId: 'approval-1',
     kind: 'waiting_approval',
+    messageId: 'message-1',
+    modelToolCallId: 'model-call-1',
     note: 'Waiting for approval',
-    provider: {
-      openai: {
-        callId: 'call-1',
-        previousResponseId: 'resp-1'
-      }
-    },
+    partId: 'part-1',
     taskId: 'task-1',
     toolCallId: 'tool-1',
     updatedAt: '2026-04-21T10:00:00.000Z'
   });
-  assert.equal(getCheckpointCallId(checkpoint), 'call-1');
-  assert.equal(getCheckpointPreviousResponseId(checkpoint), 'resp-1');
 });
 
 test('checkpoint parser tolerates invalid JSON and missing provider fields', () => {
@@ -44,8 +38,6 @@ test('checkpoint parser tolerates invalid JSON and missing provider fields', () 
     updatedAt: '2026-04-21T10:05:00.000Z'
   });
 
-  assert.equal(getCheckpointCallId(minimalCheckpoint), undefined);
-  assert.equal(getCheckpointPreviousResponseId(minimalCheckpoint), undefined);
   assert.deepEqual(parseSessionCheckpoint(JSON.stringify(minimalCheckpoint)), {
     kind: 'executing_task',
     updatedAt: '2026-04-21T10:05:00.000Z'

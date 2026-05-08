@@ -1,11 +1,12 @@
 import { streamSSE } from 'hono/streaming';
-import { sessionPromptService } from '../../services/session/prompt-service.js';
+import { sessionInteractionService } from '../../services/agent/interaction-service.js';
+import { agentRunService } from '../../services/agent/run-service.js';
 import { parseLastEventId, writeEnvelope } from '../../lib/sse.js';
-import { sessionStreamHub } from '../../services/session/stream-hub.js';
+import { sessionStreamHub } from '../../lib/session-stream-hub.js';
 import { appFactory } from '../../lib/factory.js';
 import { isServiceError } from '../../lib/service-error.js';
 import { createValidator } from '../../lib/validator.js';
-import { sessionEventService } from '../../services/session/event-service.js';
+import { sessionEventService } from '../../services/session-events/event-service.js';
 import { sessionService } from '../../services/session/service.js';
 import { AgentSchemas } from './agent.schema.js';
 
@@ -48,12 +49,36 @@ export const submitMessage = appFactory.createHandlers(
     const payload = c.req.valid('json');
 
     try {
-      const response = await sessionPromptService.prompt({
+      const response = await sessionInteractionService.prompt({
         content: payload.content,
         sessionId
       });
 
       return c.json({ data: response }, 202);
+    } catch (error) {
+      if (isServiceError(error)) {
+        return c.json({ error: error.message }, error.status);
+      }
+
+      throw error;
+    }
+  }
+);
+
+export const cancelCurrentRun = appFactory.createHandlers(
+  createValidator.param(AgentSchemas.cancelCurrentRun.param),
+  createValidator.json(AgentSchemas.cancelCurrentRun.json),
+  async (c) => {
+    const { sessionId } = c.req.valid('param');
+    const payload = c.req.valid('json');
+
+    try {
+      const response = agentRunService.cancelCurrentRun({
+        reason: payload.reason,
+        sessionId
+      });
+
+      return c.json({ data: response }, 200);
     } catch (error) {
       if (isServiceError(error)) {
         return c.json({ error: error.message }, error.status);

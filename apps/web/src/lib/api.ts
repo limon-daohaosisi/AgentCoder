@@ -1,4 +1,6 @@
 import type {
+  CancelRunInput,
+  CancelRunResponse,
   CreateSessionInput,
   CreateWorkspaceInput,
   MessageDto,
@@ -122,6 +124,22 @@ export function submitSessionMessage(
 ) {
   return fetchData<SubmitSessionMessageResponse>(
     `/sessions/${sessionId}/messages`,
+    {
+      body: JSON.stringify(input),
+      headers: {
+        'content-type': 'application/json'
+      },
+      method: 'POST'
+    }
+  );
+}
+
+export function cancelCurrentRun(
+  sessionId: string,
+  input: CancelRunInput = {}
+) {
+  return fetchData<CancelRunResponse>(
+    `/sessions/${sessionId}/runs/current/cancel`,
     {
       body: JSON.stringify(input),
       headers: {

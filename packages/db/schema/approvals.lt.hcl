@@ -16,6 +16,11 @@ table "approvals" {
     null = true
   }
 
+  column "run_id" {
+    type = text
+    null = true
+  }
+
   column "tool_call_id" {
     type = text
     null = false
@@ -84,6 +89,12 @@ table "approvals" {
     on_delete   = SET_NULL
   }
 
+  foreign_key "approvals_run_id_fkey" {
+    columns     = [column.run_id]
+    ref_columns = [table.agent_runs.column.id]
+    on_delete   = SET_NULL
+  }
+
   foreign_key "approvals_tool_call_id_fkey" {
     columns     = [column.tool_call_id]
     ref_columns = [table.tool_calls.column.id]
@@ -108,5 +119,9 @@ table "approvals" {
 
   index "idx_approvals_tool_call_id" {
     columns = [column.tool_call_id]
+  }
+
+  index "idx_approvals_run_status" {
+    columns = [column.run_id, column.status]
   }
 }

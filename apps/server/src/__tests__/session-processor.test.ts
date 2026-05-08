@@ -1,5 +1,6 @@
 import {
   SessionProcessor,
+  type AiSdkTurnRequest,
   type ModelResponseStream,
   type StreamModelResponse
 } from '@opencode/agent';
@@ -9,6 +10,7 @@ import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { buildSessionProcessorDeps } from '../wiring/agent.js';
 
 const {
+  agentRunService,
   environment,
   messageService,
   sessionEventService,
@@ -17,21 +19,32 @@ const {
 } = dbTestContext;
 
 function createFakeStream(input: {
-  events: Array<{ delta: string; type: 'response.output_text.delta' }>;
-  finalResponse: {
-    id: string;
-    output: Array<Record<string, unknown>>;
-  };
-}) {
+  events: Array<Record<string, unknown>>;
+}): ModelResponseStream {
   return {
-    async finalResponse() {
-      return input.finalResponse;
-    },
-    async *[Symbol.asyncIterator]() {
-      for (const event of input.events) {
-        yield event;
+    fullStream: {
+      async *[Symbol.asyncIterator]() {
+        for (const event of input.events) {
+          yield event;
+        }
       }
     }
+  } as unknown as ModelResponseStream;
+}
+
+function createRequest(
+  overrides: Partial<AiSdkTurnRequest> = {}
+): AiSdkTurnRequest {
+  return {
+    messages: [],
+    model: 'openai:gpt-4.1-mini',
+    modelId: 'gpt-4.1-mini',
+    providerId: 'openai',
+    system: 'system',
+    toolExecutionMode: 'manual',
+    toolPolicies: {},
+    tools: {},
+    ...overrides
   };
 }
 
@@ -46,6 +59,20 @@ function createSession() {
   });
 }
 
+function createProcessTurnInput(input: {
+  request: AiSdkTurnRequest;
+  runId: string;
+  sessionId: string;
+}) {
+  return {
+    request: input.request,
+    runId: input.runId,
+    sessionId: input.sessionId,
+    signal: new AbortController().signal,
+    workspaceRoot: environment.workspaceRoot
+  };
+}
+
 beforeEach(() => {
   resetTestDatabase();
 });
@@ -56,169 +83,376 @@ afterEach(() => {
 
 test('SessionProcessor persists streamed assistant text and completes the turn', async () => {
   const session = createSession();
-
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
         createFakeStream({
           events: [
-            { delta: 'Hello', type: 'response.output_text.delta' },
-            { delta: ' world', type: 'response.output_text.delta' }
-          ],
-          finalResponse: {
-            id: 'resp-text',
-            output: []
-          }
-        }) as unknown as ModelResponseStream) as StreamModelResponse
+            { id: 'text-1', text: 'Hello', type: 'text-delta' },
+            { id: 'text-1', text: ' world', type: 'text-delta' },
+            {
+              finishReason: 'stop',
+              providerMetadata: { provider: 'test' },
+              response: {
+                id: 'resp-text',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 2,
+                totalTokens: 3
+              }
+            },
+            {
+              finishReason: 'stop',
+              totalUsage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 2,
+                totalTokens: 3
+              },
+              type: 'finish'
+            }
+          ]
+        })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    input: 'Say hello',
-    previousResponseId: null,
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest(),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
 
   assert.deepEqual(result, {
-    kind: 'completed',
-    previousResponseId: 'resp-text'
+    finishReason: 'stop',
+    kind: 'completed'
   });
 
   const messages = messageService.listMessages(session.id);
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.role, 'assistant');
-  assert.deepEqual(messages[0]?.content, [
-    { text: 'Hello world', type: 'text' }
-  ]);
-
-  const events = sessionEventService.listAfterSequence(session.id, 0);
-
+  assert.equal(messages[0]?.status, 'completed');
+  assert.equal(messages[0]?.modelResponseId, 'resp-text');
   assert.deepEqual(
-    events.map((envelope) => envelope.event.type),
+    messages[0]?.content.map((part) => ({
+      text: part.type === 'text' ? part.text : undefined,
+      type: part.type
+    })),
+    [{ text: 'Hello world', type: 'text' }]
+  );
+  assert.deepEqual(
+    sessionEventService
+      .listAfterSequence(session.id, 0)
+      .map((envelope) => envelope.event.type),
     [
       'message.created',
-      'message.delta',
-      'message.delta',
-      'message.completed',
-      'session.updated'
+      'message.part.created',
+      'message.part.delta',
+      'message.completed'
     ]
   );
-  assert.equal(sessionService.getSession(session.id)?.status, 'executing');
 });
 
-test('SessionProcessor auto-executes read_file tools and returns function_call_output input', async () => {
+test('SessionProcessor emits reasoning part events for reasoning deltas', async () => {
   const session = createSession();
-
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
         createFakeStream({
-          events: [],
-          finalResponse: {
-            id: 'resp-tool',
-            output: [
-              {
-                arguments: JSON.stringify({ path: 'src/index.ts' }),
-                call_id: 'call-read-file',
-                name: 'read_file',
-                type: 'function_call'
+          events: [
+            { id: 'reasoning-1', text: 'Think', type: 'reasoning-delta' },
+            { id: 'reasoning-1', text: ' harder', type: 'reasoning-delta' },
+            {
+              finishReason: 'stop',
+              response: {
+                id: 'resp-reasoning',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 2,
+                totalTokens: 3
               }
-            ]
-          }
-        }) as unknown as ModelResponseStream) as StreamModelResponse
+            }
+          ]
+        })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    input: 'Read the index file',
-    previousResponseId: null,
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest(),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.deepEqual(result, {
+    finishReason: 'stop',
+    kind: 'completed'
   });
 
-  assert.equal(result.kind, 'continue_with_tool_results');
-  assert.equal(result.previousResponseId, 'resp-tool');
-  assert.equal(result.nextInput.length, 1);
-  assert.deepEqual(
-    JSON.parse((result.nextInput[0] as { output: string }).output),
-    {
-      content: 'export const ok = true;\n',
-      path: 'src/index.ts'
-    }
+  const [message] = messageService.listMessages(session.id);
+
+  assert.equal(message?.content[0]?.type, 'reasoning');
+  assert.equal(
+    message?.content[0]?.type === 'reasoning'
+      ? message.content[0].text
+      : undefined,
+    'Think harder'
   );
+  assert.deepEqual(
+    sessionEventService
+      .listAfterSequence(session.id, 0)
+      .map((envelope) => envelope.event.type),
+    [
+      'message.created',
+      'message.part.created',
+      'message.part.delta',
+      'message.completed'
+    ]
+  );
+});
+
+test('SessionProcessor persists auto tool calls without executing local tools', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: { path: 'src/index.ts' },
+              toolCallId: 'model-call-read',
+              toolName: 'read_file',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-tool',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          read_file: {
+            approval: 'never',
+            enabled: true,
+            name: 'read_file',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+  assert.equal(result.toolParts.length, 1);
+  assert.equal(result.toolParts[0]?.state.status, 'pending');
 
   const messages = messageService.listMessages(session.id);
 
   assert.equal(messages.length, 1);
-  assert.equal(messages[0]?.role, 'tool');
-  assert.deepEqual(messages[0]?.content, [
-    {
-      content: {
-        content: 'export const ok = true;\n',
-        path: 'src/index.ts'
-      },
-      toolName: 'read_file',
-      type: 'tool_result'
-    }
-  ]);
-
+  assert.equal(messages[0]?.role, 'assistant');
+  assert.equal(messages[0]?.content[0]?.type, 'tool');
+  assert.equal(
+    messages[0]?.content[0]?.type === 'tool'
+      ? messages[0].content[0].modelToolCallId
+      : undefined,
+    'model-call-read'
+  );
   assert.deepEqual(
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['tool.running', 'message.created', 'tool.completed']
+    ['message.created', 'message.part.created', 'message.completed']
   );
 });
 
-test('SessionProcessor pauses for approval-required tools and persists a resumable checkpoint', async () => {
+test('SessionProcessor pauses for approval-required tools and stores part checkpoint', async () => {
   const session = createSession();
-
+  const run = agentRunService.createRun({ sessionId: session.id });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
         createFakeStream({
-          events: [],
-          finalResponse: {
-            id: 'resp-approval',
-            output: [
-              {
-                arguments: JSON.stringify({
-                  content: 'export const ok = false;\n',
-                  path: 'src/index.ts'
-                }),
-                call_id: 'call-write-file',
-                name: 'write_file',
-                type: 'function_call'
+          events: [
+            {
+              input: {
+                content: 'export const ok = false;\n',
+                path: 'src/index.ts'
+              },
+              toolCallId: 'model-call-write',
+              toolName: 'write_file',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-approval',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
               }
-            ]
-          }
-        }) as unknown as ModelResponseStream) as StreamModelResponse
+            }
+          ]
+        })) as StreamModelResponse
     })
   );
-  const result = await processor.processTurn({
-    input: 'Update the file',
-    previousResponseId: null,
-    sessionId: session.id,
-    workspaceRoot: environment.workspaceRoot
-  });
-
-  assert.equal(result.kind, 'paused_for_approval');
-  assert.equal(result.previousResponseId, 'resp-approval');
-  assert.equal(result.checkpoint.kind, 'waiting_approval');
-  assert.equal(result.checkpoint.provider?.openai?.callId, 'call-write-file');
-  assert.equal(
-    result.checkpoint.provider?.openai?.previousResponseId,
-    'resp-approval'
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          write_file: {
+            approval: 'required',
+            enabled: true,
+            name: 'write_file',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
   );
 
-  const persistedSession = sessionService.getSession(session.id);
-
-  assert.equal(persistedSession?.status, 'waiting_approval');
-  assert.ok(persistedSession?.lastCheckpointJson);
+  assert.equal(result.kind, 'paused_for_approval');
+  assert.equal(result.checkpoint.kind, 'waiting_approval');
+  assert.ok(result.checkpoint.messageId);
+  assert.ok(result.checkpoint.partId);
+  assert.equal(result.checkpoint.modelToolCallId, 'model-call-write');
+  assert.ok(result.checkpoint.toolCallId);
+  assert.equal(result.approval.kind, 'write_file');
+  assert.equal(result.approval.status, 'pending');
+  assert.equal(result.toolCall.id, result.checkpoint.toolCallId);
+  assert.equal(sessionService.getSession(session.id)?.status, 'planning');
   assert.deepEqual(
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['tool.pending', 'approval.created', 'session.resumable', 'session.updated']
+    ['message.created', 'message.part.created', 'message.completed']
   );
+});
+
+test('SessionProcessor fails multiple approval-required tools instead of creating ambiguous recovery', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                content: 'export const first = true;\n',
+                path: 'src/first.ts'
+              },
+              toolCallId: 'model-call-write-1',
+              toolName: 'write_file',
+              type: 'tool-call'
+            },
+            {
+              input: { command: 'pwd' },
+              toolCallId: 'model-call-command-1',
+              toolName: 'run_command',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-multiple-approval',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          run_command: {
+            approval: 'required',
+            enabled: true,
+            name: 'run_command',
+            source: 'builtin'
+          },
+          write_file: {
+            approval: 'required',
+            enabled: true,
+            name: 'write_file',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.deepEqual(result, {
+    error: 'Multiple approval-required tool calls are not supported.',
+    kind: 'failed'
+  });
+
+  const [message] = messageService.listMessages(session.id);
+  const toolParts = message?.content.filter((part) => part.type === 'tool');
+
+  assert.equal(message?.status, 'failed');
+  assert.equal(toolParts?.length, 2);
+  assert.deepEqual(
+    toolParts?.map((part) => (part.type === 'tool' ? part.state.status : null)),
+    ['error', 'error']
+  );
+  assert.equal(sessionService.getSession(session.id)?.status, 'planning');
 });

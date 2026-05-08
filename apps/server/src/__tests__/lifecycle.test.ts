@@ -1,81 +1,29 @@
-import {
-  Lifecycle,
-  SessionProcessor,
-  type RunLoopInput
-} from '@opencode/agent';
+import { Lifecycle, ToolExecutor } from '@opencode/agent';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
-import {
-  buildLifecycleDeps,
-  buildSessionProcessorDeps
-} from '../wiring/agent.js';
+import { approvalRepository } from '../repositories/approval-repository.js';
+import { agentRunRepository } from '../repositories/agent-run-repository.js';
+import { toolCallRepository } from '../repositories/tool-call-repository.js';
+import { buildLifecycleDeps } from '../wiring/agent.js';
 
 const {
+  agentRunService,
   buildSessionCheckpoint,
   environment,
   messageService,
+  partService,
   sessionEventService,
   sessionService,
   workspaceService
 } = dbTestContext;
 
-async function createApprovalFixture(input: {
-  checkpointCallId: string;
-  decision: 'approved' | 'rejected';
-  previousResponseId: string;
-  sessionId: string;
-  toolName: 'run_command' | 'write_file';
-  toolInput: Record<string, unknown>;
-}) {
-  const { approvalRepository } =
-    await import('../repositories/approval-repository.js');
-  const { toolCallRepository } =
-    await import('../repositories/tool-call-repository.js');
-  const now = '2026-04-23T00:00:00.000Z';
+function createRunSignal() {
+  return new AbortController().signal;
+}
 
-  sessionService.updateSessionRuntimeState({
-    lastCheckpoint: buildSessionCheckpoint({
-      approvalId: 'approval-test',
-      callId: input.checkpointCallId,
-      kind: 'waiting_approval',
-      previousResponseId: input.previousResponseId,
-      toolCallId: 'tool-call-test',
-      updatedAt: now
-    }),
-    sessionId: input.sessionId,
-    status: 'executing'
-  });
-
-  const toolCall = toolCallRepository.create({
-    createdAt: now,
-    id: 'tool-call-test',
-    input: input.toolInput,
-    messageId: null,
-    requiresApproval: true,
-    sessionId: input.sessionId,
-    status: input.decision,
-    taskId: null,
-    toolName: input.toolName,
-    updatedAt: now
-  });
-  const approval = approvalRepository.create({
-    createdAt: now,
-    decisionReasonText: null,
-    decidedAt: input.decision === 'approved' ? now : now,
-    decidedBy: null,
-    decisionScope: 'once',
-    id: 'approval-test',
-    kind: input.toolName,
-    payload: {},
-    sessionId: input.sessionId,
-    status: input.decision,
-    suggestedRuleJson: null,
-    taskId: null,
-    toolCallId: toolCall.id
-  });
-
-  return { approval, toolCall };
+function createRun(sessionId: string) {
+  return agentRunService.createRun({ sessionId });
 }
 
 function createSession() {
@@ -89,6 +37,90 @@ function createSession() {
   });
 }
 
+function createApprovalFixture(input: {
+  decision?: 'approved' | 'rejected';
+  sessionId: string;
+  toolName: 'run_command' | 'write_file';
+  toolInput: Record<string, unknown>;
+}) {
+  const now = '2026-04-27T00:00:00.000Z';
+  const run = createRun(input.sessionId);
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: input.sessionId,
+    status: 'completed'
+  });
+  const part = partService.appendPart({
+    messageId: assistant.id,
+    modelToolCallId: 'model-call-test',
+    order: 0,
+    runId: run.id,
+    sessionId: input.sessionId,
+    state: {
+      input: input.toolInput,
+      status: 'pending'
+    },
+    toolCallId: 'tool-call-test',
+    toolName: input.toolName,
+    type: 'tool'
+  });
+  const toolCall = toolCallRepository.create({
+    createdAt: now,
+    id: 'tool-call-test',
+    input: input.toolInput,
+    messageId: assistant.id,
+    messagePartId: part.id,
+    modelToolCallId: 'model-call-test',
+    requiresApproval: true,
+    runId: run.id,
+    sessionId: input.sessionId,
+    status: 'pending_approval',
+    taskId: null,
+    toolName: input.toolName,
+    updatedAt: now
+  });
+  const approval = approvalRepository.create({
+    createdAt: now,
+    decisionReasonText: null,
+    decidedAt: null,
+    decidedBy: null,
+    decisionScope: 'once',
+    id: 'approval-test',
+    kind: input.toolName,
+    payload: {},
+    runId: run.id,
+    sessionId: input.sessionId,
+    status: input.decision ?? 'pending',
+    suggestedRuleJson: null,
+    taskId: null,
+    toolCallId: toolCall.id
+  });
+
+  const checkpoint = buildSessionCheckpoint({
+    approvalId: approval.id,
+    kind: 'waiting_approval',
+    messageId: assistant.id,
+    modelToolCallId: 'model-call-test',
+    partId: part.id,
+    toolCallId: toolCall.id,
+    updatedAt: now
+  });
+
+  sessionService.updateSessionRuntimeState({
+    lastCheckpoint: checkpoint,
+    sessionId: input.sessionId,
+    status: 'waiting_approval'
+  });
+  agentRunService.markWaitingApproval({
+    checkpoint,
+    runId: run.id
+  });
+
+  return { approval, part, run, toolCall };
+}
+
 beforeEach(() => {
   resetTestDatabase();
 });
@@ -97,24 +129,27 @@ afterEach(() => {
   resetTestDatabase();
 });
 
-test('Lifecycle maps loop failures to session.failed state', async () => {
+test('Lifecycle maps loop failures to run.failed and session idle', async () => {
   const session = createSession();
   const lifecycle = new Lifecycle(
     {
       async run() {
         throw new Error('loop exploded');
       }
-    } as never,
+    },
     buildLifecycleDeps()
   );
+  const run = createRun(session.id);
 
   const result = await lifecycle.startPromptRun({
-    input: 'Start the run',
+    runId: run.id,
+    signal: createRunSignal(),
     sessionId: session.id
   });
 
   assert.deepEqual(result, { reason: 'failed' });
-  assert.equal(sessionService.getSession(session.id)?.status, 'failed');
+  assert.equal(agentRunRepository.getById(run.id)?.status, 'failed');
+  assert.equal(sessionService.getSession(session.id)?.status, 'idle');
   assert.equal(
     sessionService.getSession(session.id)?.lastErrorText,
     'loop exploded'
@@ -123,97 +158,144 @@ test('Lifecycle maps loop failures to session.failed state', async () => {
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['session.failed', 'session.updated']
+    ['run.failed', 'session.updated']
   );
 });
 
-test('Lifecycle continues the model when an approved tool fails during approval resume', async () => {
+test('Lifecycle maps completed runs to run.completed and session idle', async () => {
   const session = createSession();
-  const { approval, toolCall } = await createApprovalFixture({
-    checkpointCallId: 'call-approved',
-    decision: 'approved',
-    previousResponseId: 'resp-prev',
-    sessionId: session.id,
-    toolInput: { command: 'false' },
-    toolName: 'run_command'
-  });
-  let runInput: unknown;
-
+  const run = createRun(session.id);
   const lifecycle = new Lifecycle(
     {
-      async run(input: RunLoopInput) {
-        runInput = input;
-        return {
-          kind: 'completed',
-          previousResponseId: 'resp-next'
-        };
+      async run() {
+        return { finishReason: 'stop', kind: 'completed' };
       }
-    } as never,
-    buildLifecycleDeps({
-      processor: new SessionProcessor(
-        buildSessionProcessorDeps({
-          async executeApprovedTool() {
-            throw new Error('tool exploded');
-          }
-        })
-      )
-    })
+    },
+    buildLifecycleDeps()
   );
 
-  const result = await lifecycle.resumeApprovalRun({
-    approval,
-    decision: 'approved',
-    toolCall
+  const result = await lifecycle.startPromptRun({
+    runId: run.id,
+    signal: createRunSignal(),
+    sessionId: session.id
   });
 
   assert.deepEqual(result, { reason: 'completed' });
-  const loopInput = runInput as {
-    input: Array<{ output: string }>;
-    previousResponseId: string;
-  };
-
-  assert.ok(loopInput.input[0]);
-  assert.deepEqual(JSON.parse(loopInput.input[0].output), {
-    error: 'tool exploded',
-    ok: false
-  });
-  assert.equal(loopInput.previousResponseId, 'resp-prev');
-  assert.equal(sessionService.getSession(session.id)?.status, 'executing');
-  assert.equal(
-    sessionEventService
-      .listAfterSequence(session.id, 0)
-      .some((envelope) => envelope.event.type === 'session.failed'),
-    false
-  );
-
-  const messages = messageService.listMessages(session.id);
-
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0]?.role, 'tool');
-  assert.deepEqual(messages[0]?.content, [
-    {
-      content: {
-        error: 'tool exploded',
-        ok: false
-      },
-      toolName: 'run_command',
-      type: 'tool_result'
-    }
-  ]);
+  assert.equal(agentRunRepository.getById(run.id)?.status, 'completed');
+  assert.equal(sessionService.getSession(session.id)?.status, 'idle');
   assert.deepEqual(
     sessionEventService
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
-    ['tool.running', 'message.created', 'tool.failed']
+    ['run.completed', 'session.updated']
   );
 });
 
-test('Lifecycle builds a synthetic tool result when approval is rejected', async () => {
+test('Lifecycle owns paused approval run/session state and resumable event', async () => {
   const session = createSession();
-  const { approval, toolCall } = await createApprovalFixture({
-    checkpointCallId: 'call-rejected',
-    decision: 'rejected',
-    previousResponseId: 'resp-prev',
+  const run = createRun(session.id);
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+  const createdTool = partService.createToolPartWithToolCall({
+    part: {
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'part-pause-test',
+      messageId: assistant.id,
+      modelToolCallId: 'model-call-pause-test',
+      order: 0,
+      sessionId: session.id,
+      state: {
+        input: { command: 'pwd' },
+        status: 'pending'
+      },
+      toolCallId: 'tool-call-pause-test',
+      toolName: 'run_command',
+      type: 'tool',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    },
+    toolCall: {
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'tool-call-pause-test',
+      input: { command: 'pwd' },
+      messageId: assistant.id,
+      messagePartId: 'part-pause-test',
+      modelToolCallId: 'model-call-pause-test',
+      requiresApproval: true,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'pending_approval',
+      taskId: null,
+      toolName: 'run_command',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    }
+  });
+  const approval = {
+    createdAt: '2026-04-29T14:00:00.000Z',
+    decisionReasonText: undefined,
+    decidedAt: undefined,
+    decidedBy: undefined,
+    decisionScope: 'once',
+    id: 'approval-pause-test',
+    kind: 'run_command',
+    payload: { command: 'pwd' },
+    runId: run.id,
+    sessionId: session.id,
+    status: 'pending',
+    suggestedRuleJson: undefined,
+    taskId: undefined,
+    toolCallId: createdTool.toolCall.id
+  } as const;
+  const checkpoint = buildSessionCheckpoint({
+    approvalId: approval.id,
+    kind: 'waiting_approval',
+    messageId: assistant.id,
+    modelToolCallId: createdTool.toolCall.modelToolCallId,
+    partId: createdTool.part.id,
+    toolCallId: createdTool.toolCall.id,
+    updatedAt: '2026-04-29T14:00:00.000Z'
+  });
+  const lifecycle = new Lifecycle(
+    {
+      async run() {
+        return {
+          approval,
+          checkpoint,
+          kind: 'paused_for_approval',
+          toolCall: createdTool.toolCall
+        };
+      }
+    },
+    buildLifecycleDeps()
+  );
+
+  const result = await lifecycle.startPromptRun({
+    runId: run.id,
+    signal: createRunSignal(),
+    sessionId: session.id
+  });
+
+  assert.deepEqual(result, { reason: 'paused_for_approval' });
+  assert.equal(agentRunRepository.getById(run.id)?.status, 'waiting_approval');
+  assert.equal(
+    sessionService.getSession(session.id)?.status,
+    'waiting_approval'
+  );
+  assert.deepEqual(
+    sessionEventService
+      .listAfterSequence(session.id, 0)
+      .map((envelope) => envelope.event.type),
+    ['tool.pending', 'approval.created', 'session.resumable', 'session.updated']
+  );
+});
+
+test('Lifecycle resolves rejected approval into ToolPart error and resumes loop', async () => {
+  const session = createSession();
+  const { approval, toolCall, part, run } = createApprovalFixture({
     sessionId: session.id,
     toolInput: {
       content: 'export const ok = false;\n',
@@ -221,40 +303,88 @@ test('Lifecycle builds a synthetic tool result when approval is rejected', async
     },
     toolName: 'write_file'
   });
-  let runInput: unknown;
-
+  let runCalled = false;
   const lifecycle = new Lifecycle(
     {
-      async run(input: RunLoopInput) {
-        runInput = input;
-        return {
-          kind: 'completed',
-          previousResponseId: 'resp-next'
-        };
+      async run() {
+        runCalled = true;
+        return { finishReason: 'stop', kind: 'completed' };
       }
-    } as never,
+    },
     buildLifecycleDeps()
   );
 
   const result = await lifecycle.resumeApprovalRun({
     approval,
     decision: 'rejected',
+    runId: run.id,
+    signal: createRunSignal(),
     toolCall
   });
 
   assert.deepEqual(result, { reason: 'completed' });
-  const loopInput = runInput as { input: Array<{ output: string }> };
+  assert.equal(runCalled, true);
 
-  assert.ok(loopInput.input[0]);
-  assert.deepEqual(JSON.parse(loopInput.input[0].output), {
-    error: 'Approval rejected by user',
-    ok: false,
-    rejected: true
+  const updatedPart = partService.getPart(part.id);
+
+  assert.equal(updatedPart?.type, 'tool');
+  assert.equal(
+    updatedPart?.type === 'tool' ? updatedPart.state.status : undefined,
+    'error'
+  );
+  assert.equal(
+    updatedPart?.type === 'tool' && updatedPart.state.status === 'error'
+      ? updatedPart.state.reason
+      : undefined,
+    'execution_denied'
+  );
+});
+
+test('Lifecycle continues when approved tool execution writes an error result', async () => {
+  const session = createSession();
+  const { approval, part, run, toolCall } = createApprovalFixture({
+    sessionId: session.id,
+    toolInput: { command: 'definitely-missing-command-for-test' },
+    toolName: 'run_command'
   });
-  assert.deepEqual(
-    sessionEventService
-      .listAfterSequence(session.id, 0)
-      .map((envelope) => envelope.event.type),
-    ['message.created', 'tool.failed']
+  let runCalled = false;
+  const failingToolExecutor = new ToolExecutor({
+    appendSessionEvent: (event) => sessionEventService.append(event),
+    getMessagePart: (partId) => partService.getPart(partId),
+    updateToolPartWithToolCall: (input) =>
+      partService.updateToolPartWithToolCall(input)
+  });
+  const lifecycle = new Lifecycle(
+    {
+      async run() {
+        runCalled = true;
+        return { finishReason: 'stop', kind: 'completed' };
+      }
+    },
+    buildLifecycleDeps({ toolExecutor: failingToolExecutor })
+  );
+
+  const result = await lifecycle.resumeApprovalRun({
+    approval,
+    decision: 'approved',
+    runId: run.id,
+    signal: createRunSignal(),
+    toolCall
+  });
+
+  assert.deepEqual(result, { reason: 'completed' });
+  assert.equal(runCalled, true);
+
+  const updatedPart = partService.getPart(part.id);
+
+  assert.equal(
+    updatedPart?.type === 'tool' ? updatedPart.state.status : undefined,
+    'error'
+  );
+  assert.equal(
+    updatedPart?.type === 'tool' && updatedPart.state.status === 'error'
+      ? updatedPart.state.reason
+      : undefined,
+    'tool_error'
   );
 });

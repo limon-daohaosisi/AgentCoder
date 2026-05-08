@@ -9,8 +9,13 @@ const [
   { sqlite },
   { ServiceError },
   { buildSessionCheckpoint },
+  { agentRunService },
   { messageService },
+  { messagePartService },
+  { sessionInteractionService },
+  { toolStateService },
   { sessionEventService },
+  { sessionRecoveryService },
   { sessionService },
   { workspaceService }
 ] = await Promise.all([
@@ -18,11 +23,21 @@ const [
   import('../db/client.js'),
   import('../lib/service-error.js'),
   import('@opencode/agent'),
-  import('../services/session/message-service.js'),
-  import('../services/session/event-service.js'),
+  import('../services/agent/run-service.js'),
+  import('../services/session/message/service.js'),
+  import('../services/session/message/part-service.js'),
+  import('../services/agent/interaction-service.js'),
+  import('../services/agent/tool-state-service.js'),
+  import('../services/session-events/event-service.js'),
+  import('../services/session/recovery-service.js'),
   import('../services/session/service.js'),
   import('../services/workspace/service.js')
 ]);
+
+const partService = {
+  ...messagePartService,
+  ...toolStateService
+};
 
 try {
   sqlite.exec(environment.migrationSql);
@@ -43,14 +58,20 @@ process.once('exit', () => {
 });
 
 export const dbTestContext = {
+  agentRunService,
   app,
   buildSessionCheckpoint,
   environment,
   ServiceError,
   messageService,
+  messagePartService,
+  partService,
   sessionEventService,
+  sessionInteractionService,
+  sessionRecoveryService,
   sessionService,
   sqlite,
+  toolStateService,
   workspaceService
 };
 

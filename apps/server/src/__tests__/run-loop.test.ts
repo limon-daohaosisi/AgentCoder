@@ -2,30 +2,83 @@ import {
   RunLoop,
   type ProcessTurnInput,
   type ProcessorResult,
-  type SessionProcessor
+  type RunLoopDeps
 } from '@opencode/agent';
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import type { ResponseInputItem } from 'openai/resources/responses/responses';
+import { beforeEach, test } from 'node:test';
+import { dbTestContext, resetTestDatabase } from './db-test-context.js';
+import { buildRunLoopDeps } from '../wiring/agent.js';
 
-test('RunLoop continues with tool results until the turn completes', async () => {
+const { environment, messageService, sessionService, workspaceService } =
+  dbTestContext;
+
+function createSessionWithUserMessage() {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Exercise run loop behavior',
+    workspaceId: workspace.id
+  });
+
+  messageService.createMessage({
+    content: [{ text: 'Read the file', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+
+  return session;
+}
+
+beforeEach(() => {
+  resetTestDatabase();
+});
+
+function createDeps(overrides: Partial<RunLoopDeps> = {}): RunLoopDeps {
+  return buildRunLoopDeps({
+    modelFactory: () => 'openai:gpt-4.1-mini',
+    ...overrides
+  });
+}
+
+function createRunLoopInput(sessionId: string) {
+  return {
+    runId: 'run-test',
+    sessionId,
+    signal: new AbortController().signal,
+    workspaceRoot: environment.workspaceRoot
+  };
+}
+
+test('RunLoop rebuilds context and continues after auto tool execution', async () => {
+  const session = createSessionWithUserMessage();
   const calls: ProcessTurnInput[] = [];
-  const nextInput: ResponseInputItem[] = [
-    {
-      call_id: 'call-1',
-      output: '{"ok":true}',
-      type: 'function_call_output'
-    }
-  ];
   const results: ProcessorResult[] = [
     {
-      kind: 'continue_with_tool_results',
-      nextInput,
-      previousResponseId: 'resp-1'
+      assistantMessageId: 'assistant-1',
+      kind: 'tool_calls',
+      toolParts: [
+        {
+          createdAt: '2026-04-27T00:00:00.000Z',
+          id: 'part-tool-1',
+          messageId: 'assistant-1',
+          modelToolCallId: 'model-call-1',
+          order: 0,
+          sessionId: session.id,
+          state: {
+            input: { path: 'src/index.ts' },
+            status: 'pending'
+          },
+          toolCallId: 'tool-call-1',
+          toolName: 'read_file',
+          type: 'tool',
+          updatedAt: '2026-04-27T00:00:00.000Z'
+        }
+      ]
     },
     {
-      kind: 'completed',
-      previousResponseId: 'resp-2'
+      finishReason: 'stop',
+      kind: 'completed'
     }
   ];
   const processor = {
@@ -39,64 +92,45 @@ test('RunLoop continues with tool results until the turn completes', async () =>
 
       return result;
     }
-  } as SessionProcessor;
-  const loop = new RunLoop(processor);
-
-  const result = await loop.run({
-    input: 'Explain the repo',
-    previousResponseId: null,
-    sessionId: 'session-1',
-    workspaceRoot: '/tmp/workspace'
-  });
-
-  assert.deepEqual(calls, [
-    {
-      input: 'Explain the repo',
-      previousResponseId: null,
-      sessionId: 'session-1',
-      workspaceRoot: '/tmp/workspace'
-    },
-    {
-      input: nextInput,
-      previousResponseId: 'resp-1',
-      sessionId: 'session-1',
-      workspaceRoot: '/tmp/workspace'
+  };
+  const toolExecutor = {
+    async executePendingToolParts() {
+      return { executedPartIds: ['part-tool-1'], kind: 'completed' as const };
     }
-  ]);
-  assert.deepEqual(result, {
-    kind: 'completed',
-    previousResponseId: 'resp-2'
-  });
+  };
+  const loop = new RunLoop(processor, toolExecutor, createDeps());
+  const result = await loop.run(createRunLoopInput(session.id));
+
+  assert.deepEqual(result, { finishReason: 'stop', kind: 'completed' });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]?.request.messages[0]?.role, 'user');
 });
 
-test('RunLoop returns immediately when the processor pauses for approval', async () => {
-  const checkpoint = {
-    kind: 'waiting_approval' as const,
-    updatedAt: '2026-04-23T00:00:00.000Z'
-  };
-  const processor = {
-    async processTurn(input: ProcessTurnInput) {
-      assert.equal(input.input, 'Run a command');
-      assert.equal(input.previousResponseId, 'resp-prev');
-      return {
-        checkpoint,
-        kind: 'paused_for_approval',
-        previousResponseId: 'resp-next'
-      } satisfies ProcessorResult;
-    }
-  } as SessionProcessor;
-  const loop = new RunLoop(processor);
+test('RunLoop does not call model when session is waiting approval', async () => {
+  const session = createSessionWithUserMessage();
+  let called = false;
 
-  const result = await loop.run({
-    input: 'Run a command',
-    previousResponseId: 'resp-prev',
-    sessionId: 'session-2',
-    workspaceRoot: '/tmp/workspace'
+  sessionService.updateSessionRuntimeState({
+    sessionId: session.id,
+    status: 'waiting_approval'
   });
 
-  assert.deepEqual(result, {
-    checkpoint,
-    kind: 'paused_for_approval',
-    previousResponseId: 'resp-next'
-  });
+  const loop = new RunLoop(
+    {
+      async processTurn() {
+        called = true;
+        return { finishReason: 'stop', kind: 'completed' };
+      }
+    },
+    {
+      async executePendingToolParts() {
+        return { executedPartIds: [], kind: 'completed' as const };
+      }
+    },
+    createDeps()
+  );
+  const result = await loop.run(createRunLoopInput(session.id));
+
+  assert.deepEqual(result, { kind: 'paused_for_approval' });
+  assert.equal(called, false);
 });

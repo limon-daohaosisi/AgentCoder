@@ -73,7 +73,7 @@ table "sessions" {
   }
 
   check "sessions_valid_status" {
-    expr = "status IN ('planning', 'executing', 'waiting_approval', 'blocked', 'failed', 'completed', 'archived')"
+    expr = "status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived')"
   }
 
   index "idx_sessions_workspace_updated_at" {

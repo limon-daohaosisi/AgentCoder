@@ -157,7 +157,7 @@ test('workspace + session CRUD smoke path persists in sqlite', async () => {
     session?: { id: string };
   }>(resumeResponse);
 
-  assert.equal(resumePayload.data?.canResume, true);
+  assert.equal(resumePayload.data?.canResume, false);
   assert.equal(resumePayload.data?.session?.id, createdSession.data.id);
   assert.equal(resumePayload.data?.checkpoint, undefined);
 

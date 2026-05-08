@@ -4,14 +4,14 @@ import { assertSafeCommand } from './guards.js';
 import type { ToolDefinition } from './types.js';
 
 export type RunCommandToolInput = {
-  timeoutMs?: number;
   command: string;
+  timeoutMs: number | null;
 };
 
 export const runCommandInputSchema = z
   .object({
     command: z.string().trim().min(1),
-    timeoutMs: z.number().int().positive().optional()
+    timeoutMs: z.number().int().positive().nullable()
   })
   .strict();
 
@@ -27,12 +27,11 @@ export const runCommandToolDefinition: ToolDefinition = {
       },
       timeoutMs: {
         description:
-          'Optional timeout in milliseconds before the command is terminated.',
-        minimum: 1,
-        type: 'integer'
+          'Timeout in milliseconds before the command is terminated. Use null for the default timeout.',
+        type: ['integer', 'null']
       }
     },
-    required: ['command'],
+    required: ['command', 'timeoutMs'],
     type: 'object'
   },
   name: 'run_command'
@@ -40,9 +39,14 @@ export const runCommandToolDefinition: ToolDefinition = {
 
 export async function runCommandTool(
   input: RunCommandToolInput,
-  workspaceRoot: string
+  workspaceRoot: string,
+  options: { signal?: AbortSignal } = {}
 ) {
   assertSafeCommand(input.command);
+
+  if (options.signal?.aborted) {
+    throw new Error('Run cancelled by user');
+  }
 
   const timeoutMs = input.timeoutMs ?? 15_000;
 
@@ -53,17 +57,59 @@ export async function runCommandTool(
   }>((resolve, reject) => {
     const child = spawn(input.command, {
       cwd: workspaceRoot,
+      detached: process.platform !== 'win32',
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    function killChild(signal: NodeJS.Signals) {
+      if (process.platform !== 'win32' && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // Fallback to killing only the shell process if the process group is gone.
+        }
+      }
+
+      child.kill(signal);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abortHandler);
+    }
+
+    function rejectOnce(error: Error) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function abortHandler() {
+      killChild('SIGTERM');
+      setTimeout(() => {
+        if (!settled) {
+          killChild('SIGKILL');
+        }
+      }, 1_000).unref();
+      rejectOnce(new Error('Run cancelled by user'));
+    }
 
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error(`Command timed out after ${timeoutMs}ms`));
+      killChild('SIGTERM');
+      rejectOnce(new Error(`Command timed out after ${timeoutMs}ms`));
     }, timeoutMs);
+
+    options.signal?.addEventListener('abort', abortHandler, { once: true });
 
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk);
@@ -74,13 +120,22 @@ export async function runCommandTool(
     });
 
     child.on('exit', (exitCode) => {
-      clearTimeout(timer);
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      if (exitCode && exitCode !== 0) {
+        reject(new Error(`Command exited with code ${exitCode}: ${stderr}`));
+        return;
+      }
+
       resolve({ exitCode, stderr, stdout });
     });
 
     child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
+      rejectOnce(error);
     });
   });
 }

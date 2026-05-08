@@ -2,10 +2,11 @@ import type { SessionCheckpoint } from '@opencode/shared';
 
 type BuildSessionCheckpointInput = {
   approvalId?: string;
-  callId?: string;
   kind: SessionCheckpoint['kind'];
+  messageId?: string;
+  modelToolCallId?: string;
   note?: string;
-  previousResponseId?: string;
+  partId?: string;
   taskId?: string;
   toolCallId?: string;
   updatedAt?: string;
@@ -17,32 +18,16 @@ export function buildSessionCheckpoint(
   const checkpoint: SessionCheckpoint = {
     approvalId: input.approvalId,
     kind: input.kind,
+    messageId: input.messageId,
+    modelToolCallId: input.modelToolCallId,
     note: input.note,
+    partId: input.partId,
     taskId: input.taskId,
     toolCallId: input.toolCallId,
     updatedAt: input.updatedAt ?? new Date().toISOString()
   };
 
-  if (input.callId || input.previousResponseId) {
-    checkpoint.provider = {
-      openai: {
-        callId: input.callId,
-        previousResponseId: input.previousResponseId
-      }
-    };
-  }
-
   return checkpoint;
-}
-
-export function getCheckpointCallId(checkpoint?: SessionCheckpoint | null) {
-  return checkpoint?.provider?.openai?.callId;
-}
-
-export function getCheckpointPreviousResponseId(
-  checkpoint?: SessionCheckpoint | null
-) {
-  return checkpoint?.provider?.openai?.previousResponseId;
 }
 
 export function parseSessionCheckpoint(raw: null | string | undefined) {

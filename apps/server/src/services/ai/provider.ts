@@ -1,7 +1,5 @@
-import OpenAI from 'openai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { ProxyAgent } from 'undici';
-
-let cachedClient: OpenAI | null = null;
 
 function getProxyUrl() {
   return (
@@ -13,29 +11,26 @@ function getProxyUrl() {
   );
 }
 
-export function getOpenAIClient() {
-  if (cachedClient) {
-    return cachedClient;
+export function createLanguageModel(input: {
+  modelId: string;
+  providerId: string;
+}) {
+  if (input.providerId !== 'openai') {
+    throw new Error(`Unsupported provider: ${input.providerId}`);
   }
 
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured.');
-  }
-
-  const baseURL = process.env.OPENAI_BASE_URL?.trim() || undefined;
   const proxyUrl = getProxyUrl();
-
-  cachedClient = new OpenAI({
-    apiKey,
-    baseURL,
-    fetchOptions: proxyUrl
-      ? {
-          dispatcher: new ProxyAgent(proxyUrl)
-        }
+  const openai = createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY?.trim(),
+    baseURL: process.env.OPENAI_BASE_URL?.trim() || undefined,
+    fetch: proxyUrl
+      ? (url, init) =>
+          fetch(url, {
+            ...init,
+            dispatcher: new ProxyAgent(proxyUrl)
+          } as RequestInit & { dispatcher: ProxyAgent })
       : undefined
   });
 
-  return cachedClient;
+  return openai(input.modelId);
 }

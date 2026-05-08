@@ -1,6 +1,5 @@
 import type {
   CreateSessionInput,
-  ResumeSessionDto,
   SessionCheckpoint,
   SessionDto
 } from '@opencode/shared';
@@ -10,6 +9,7 @@ import { stringifyJsonValue } from '../../lib/json.js';
 import { ServiceError } from '../../lib/service-error.js';
 import { sessionRepository } from '../../repositories/session-repository.js';
 import { workspaceRepository } from '../../repositories/workspace-repository.js';
+import { sessionResumeService } from './resume-service.js';
 
 type UpdateSessionRuntimeStateInput = {
   currentTaskId?: null | string;
@@ -84,7 +84,7 @@ export const sessionService = {
     return sessionRepository.listByWorkspace(workspaceId);
   },
 
-  resumeSession(sessionId: string): ResumeSessionDto {
+  resumeSession(sessionId: string) {
     const session = sessionRepository.getById(sessionId);
 
     if (!session) {
@@ -93,11 +93,7 @@ export const sessionService = {
       };
     }
 
-    return {
-      canResume: true,
-      checkpoint: session.lastCheckpointJson,
-      session
-    };
+    return sessionResumeService.resumeSession(session);
   },
 
   updateSessionRuntimeState(

@@ -1,6 +1,6 @@
 import { appFactory } from '../../lib/factory.js';
 import { isServiceError } from '../../lib/service-error.js';
-import { sessionPromptService } from '../../services/session/prompt-service.js';
+import { sessionInteractionService } from '../../services/agent/interaction-service.js';
 import { createValidator } from '../../lib/validator.js';
 import { ApprovalsSchemas } from './approvals.schema.js';
 
@@ -10,7 +10,7 @@ export const approve = appFactory.createHandlers(
     const { approvalId } = c.req.valid('param');
 
     try {
-      const response = await sessionPromptService.resolveApproval({
+      const response = await sessionInteractionService.resolveApproval({
         approvalId,
         decision: 'approved'
       });
@@ -32,7 +32,7 @@ export const reject = appFactory.createHandlers(
     const { approvalId } = c.req.valid('param');
 
     try {
-      const response = await sessionPromptService.resolveApproval({
+      const response = await sessionInteractionService.resolveApproval({
         approvalId,
         decision: 'rejected'
       });

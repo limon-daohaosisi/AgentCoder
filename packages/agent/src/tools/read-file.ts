@@ -31,8 +31,13 @@ export const readFileToolDefinition: ToolDefinition = {
 
 export async function readFileTool(
   input: ReadFileToolInput,
-  workspaceRoot: string
+  workspaceRoot: string,
+  options: { signal?: AbortSignal } = {}
 ) {
+  if (options.signal?.aborted) {
+    throw new Error('Run cancelled by user');
+  }
+
   const absolutePath = resolveWorkspacePath(workspaceRoot, input.path);
   const content = await readFile(absolutePath, 'utf8');
 

@@ -20,14 +20,14 @@ function sessionStateLabel(status: SessionDto['status']) {
   switch (status) {
     case 'planning':
       return '规划中';
+    case 'idle':
+      return '空闲';
     case 'executing':
       return '执行中';
     case 'waiting_approval':
       return '待审批';
     case 'blocked':
       return '已阻塞';
-    case 'failed':
-      return '失败';
     case 'completed':
       return '已完成';
     case 'archived':
@@ -41,12 +41,12 @@ function sessionProgressLabel(status: SessionDto['status']) {
   switch (status) {
     case 'planning':
       return '等待规划';
+    case 'idle':
+      return '可继续';
     case 'waiting_approval':
       return '等待审批';
     case 'completed':
       return '完成';
-    case 'failed':
-      return '失败';
     case 'blocked':
       return '已阻塞';
     case 'archived':

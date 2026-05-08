@@ -5,22 +5,30 @@ import { useQueryClient } from '@tanstack/react-query';
 type StreamStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 const SESSION_EVENT_NAMES = [
+  'run.created',
+  'run.completed',
+  'run.cancelled',
+  'run.blocked',
+  'run.failed',
   'message.created',
-  'message.delta',
+  'message.part.created',
+  'message.part.delta',
+  'message.part.updated',
   'message.completed',
+  'message.cancelled',
   'tool.pending',
   'approval.created',
   'approval.resolved',
   'tool.running',
   'tool.completed',
   'tool.failed',
-  'session.failed',
+  'session.recovered',
   'session.resumable',
   'session.updated'
 ] as const;
 
 function isCacheRelevantEvent(event: SessionEventEnvelope['event']) {
-  return event.type !== 'message.delta';
+  return !event.type.startsWith('message.');
 }
 
 export function useSessionStream(sessionId?: string, workspaceId?: string) {
@@ -57,15 +65,6 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
         setStatus('connected');
 
         if (isCacheRelevantEvent(envelope.event)) {
-          if (
-            envelope.event.type === 'message.created' ||
-            envelope.event.type === 'message.completed'
-          ) {
-            void queryClient.invalidateQueries({
-              queryKey: ['messages', sessionId]
-            });
-          }
-
           void queryClient.invalidateQueries({
             queryKey: ['resume-session', sessionId]
           });
