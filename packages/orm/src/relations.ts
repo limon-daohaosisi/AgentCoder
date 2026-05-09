@@ -5,12 +5,12 @@ import {
   tasks,
   sessions,
   plans,
-  approvals,
   agentRuns,
   sessionEvents,
   messages,
   messageParts,
-  workspaces
+  workspaces,
+  approvals
 } from './schema.js';
 
 export const artifactsRelations = relations(artifacts, ({ one }) => ({
@@ -71,9 +71,9 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
     fields: [tasks.sessionId],
     references: [sessions.id]
   }),
-  approvals: many(approvals),
   sessionEvents: many(sessionEvents),
   messages: many(messages),
+  approvals: many(approvals),
   toolCalls: many(toolCalls)
 }));
 
@@ -81,16 +81,16 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
   artifacts: many(artifacts),
   plans: many(plans),
   tasks: many(tasks),
-  approvals: many(approvals),
   sessionEvents: many(sessionEvents),
   messages: many(messages),
-  toolCalls: many(toolCalls),
   messageParts: many(messageParts),
   agentRuns: many(agentRuns),
   workspace: one(workspaces, {
     fields: [sessions.workspaceId],
     references: [workspaces.id]
-  })
+  }),
+  approvals: many(approvals),
+  toolCalls: many(toolCalls)
 }));
 
 export const plansRelations = relations(plans, ({ one, many }) => ({
@@ -99,6 +99,84 @@ export const plansRelations = relations(plans, ({ one, many }) => ({
     references: [sessions.id]
   }),
   tasks: many(tasks)
+}));
+
+export const sessionEventsRelations = relations(sessionEvents, ({ one }) => ({
+  agentRun: one(agentRuns, {
+    fields: [sessionEvents.runId],
+    references: [agentRuns.id]
+  }),
+  task: one(tasks, {
+    fields: [sessionEvents.taskId],
+    references: [tasks.id]
+  }),
+  session: one(sessions, {
+    fields: [sessionEvents.sessionId],
+    references: [sessions.id]
+  })
+}));
+
+export const agentRunsRelations = relations(agentRuns, ({ one, many }) => ({
+  sessionEvents: many(sessionEvents),
+  messages: many(messages, {
+    relationName: 'messages_runId_agentRuns_id'
+  }),
+  messageParts: many(messageParts),
+  message: one(messages, {
+    fields: [agentRuns.triggerMessageId],
+    references: [messages.id],
+    relationName: 'agentRuns_triggerMessageId_messages_id'
+  }),
+  session: one(sessions, {
+    fields: [agentRuns.sessionId],
+    references: [sessions.id]
+  }),
+  approvals: many(approvals),
+  toolCalls: many(toolCalls)
+}));
+
+export const messagesRelations = relations(messages, ({ one, many }) => ({
+  agentRun: one(agentRuns, {
+    fields: [messages.runId],
+    references: [agentRuns.id],
+    relationName: 'messages_runId_agentRuns_id'
+  }),
+  task: one(tasks, {
+    fields: [messages.taskId],
+    references: [tasks.id]
+  }),
+  session: one(sessions, {
+    fields: [messages.sessionId],
+    references: [sessions.id]
+  }),
+  messageParts: many(messageParts),
+  agentRuns: many(agentRuns, {
+    relationName: 'agentRuns_triggerMessageId_messages_id'
+  }),
+  toolCalls: many(toolCalls)
+}));
+
+export const messagePartsRelations = relations(
+  messageParts,
+  ({ one, many }) => ({
+    agentRun: one(agentRuns, {
+      fields: [messageParts.runId],
+      references: [agentRuns.id]
+    }),
+    message: one(messages, {
+      fields: [messageParts.messageId],
+      references: [messages.id]
+    }),
+    session: one(sessions, {
+      fields: [messageParts.sessionId],
+      references: [sessions.id]
+    }),
+    toolCalls: many(toolCalls)
+  })
+);
+
+export const workspacesRelations = relations(workspaces, ({ many }) => ({
+  sessions: many(sessions)
 }));
 
 export const approvalsRelations = relations(approvals, ({ one }) => ({
@@ -118,82 +196,4 @@ export const approvalsRelations = relations(approvals, ({ one }) => ({
     fields: [approvals.sessionId],
     references: [sessions.id]
   })
-}));
-
-export const agentRunsRelations = relations(agentRuns, ({ one, many }) => ({
-  approvals: many(approvals),
-  sessionEvents: many(sessionEvents),
-  messages: many(messages, {
-    relationName: 'messages_runId_agentRuns_id'
-  }),
-  toolCalls: many(toolCalls),
-  messageParts: many(messageParts),
-  message: one(messages, {
-    fields: [agentRuns.triggerMessageId],
-    references: [messages.id],
-    relationName: 'agentRuns_triggerMessageId_messages_id'
-  }),
-  session: one(sessions, {
-    fields: [agentRuns.sessionId],
-    references: [sessions.id]
-  })
-}));
-
-export const sessionEventsRelations = relations(sessionEvents, ({ one }) => ({
-  agentRun: one(agentRuns, {
-    fields: [sessionEvents.runId],
-    references: [agentRuns.id]
-  }),
-  task: one(tasks, {
-    fields: [sessionEvents.taskId],
-    references: [tasks.id]
-  }),
-  session: one(sessions, {
-    fields: [sessionEvents.sessionId],
-    references: [sessions.id]
-  })
-}));
-
-export const messagesRelations = relations(messages, ({ one, many }) => ({
-  agentRun: one(agentRuns, {
-    fields: [messages.runId],
-    references: [agentRuns.id],
-    relationName: 'messages_runId_agentRuns_id'
-  }),
-  task: one(tasks, {
-    fields: [messages.taskId],
-    references: [tasks.id]
-  }),
-  session: one(sessions, {
-    fields: [messages.sessionId],
-    references: [sessions.id]
-  }),
-  toolCalls: many(toolCalls),
-  messageParts: many(messageParts),
-  agentRuns: many(agentRuns, {
-    relationName: 'agentRuns_triggerMessageId_messages_id'
-  })
-}));
-
-export const messagePartsRelations = relations(
-  messageParts,
-  ({ one, many }) => ({
-    toolCalls: many(toolCalls),
-    agentRun: one(agentRuns, {
-      fields: [messageParts.runId],
-      references: [agentRuns.id]
-    }),
-    message: one(messages, {
-      fields: [messageParts.messageId],
-      references: [messages.id]
-    }),
-    session: one(sessions, {
-      fields: [messageParts.sessionId],
-      references: [sessions.id]
-    })
-  })
-);
-
-export const workspacesRelations = relations(workspaces, ({ many }) => ({
-  sessions: many(sessions)
 }));
