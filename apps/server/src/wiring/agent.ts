@@ -4,6 +4,7 @@ import {
   RunLoop,
   SessionProcessor,
   ToolExecutor,
+  type FileSnapshotArtifact,
   type LifecycleDeps,
   type RunLoopDeps,
   type SessionProcessorDeps
@@ -37,7 +38,7 @@ export function buildSessionProcessorDeps(
         services: {
           createFileSnapshot: (snapshotInput: {
             sessionId: string;
-            snapshot: import('@opencode/agent').FileSnapshotArtifact;
+            snapshot: FileSnapshotArtifact;
             toolCallId: string;
           }) => fileSnapshotService.createFromRead(snapshotInput),
           getLatestFileSnapshot: (snapshotInput: {
