@@ -62,11 +62,11 @@ function createRunningRecoveryFixture(session = createSession()) {
     order: 0,
     sessionId: session.id,
     state: {
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       status: 'pending'
     },
     toolCallId: `tool-${run.id}`,
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool',
     updatedAt: now
   };
@@ -84,7 +84,7 @@ function createRunningRecoveryFixture(session = createSession()) {
       sessionId: session.id,
       status: 'pending',
       taskId: null,
-      toolName: 'read_file',
+      toolName: 'read',
       updatedAt: now
     }
   });
@@ -124,7 +124,7 @@ function createWaitingApprovalFixture() {
       status: 'pending'
     },
     toolCallId: `approval-tool-${run.id}`,
-    toolName: 'run_command',
+    toolName: 'bash',
     type: 'tool',
     updatedAt: now
   };
@@ -142,7 +142,7 @@ function createWaitingApprovalFixture() {
       sessionId: session.id,
       status: 'pending_approval',
       taskId: null,
-      toolName: 'run_command',
+      toolName: 'bash',
       updatedAt: now
     }
   });
@@ -153,7 +153,7 @@ function createWaitingApprovalFixture() {
     decidedBy: null,
     decisionScope: 'once',
     id: `approval-${run.id}`,
-    kind: 'run_command',
+    kind: 'bash',
     payload: {},
     runId: run.id,
     sessionId: session.id,
@@ -271,7 +271,7 @@ test('startup recovery rejects keeping waiting approval when session has extra p
       status: 'pending'
     },
     toolCallId: `extra-tool-${extraRun.id}`,
-    toolName: 'run_command',
+    toolName: 'bash',
     type: 'tool',
     updatedAt: now
   };
@@ -289,7 +289,7 @@ test('startup recovery rejects keeping waiting approval when session has extra p
       sessionId: session.id,
       status: 'pending_approval',
       taskId: null,
-      toolName: 'run_command',
+      toolName: 'bash',
       updatedAt: now
     }
   });
@@ -301,7 +301,7 @@ test('startup recovery rejects keeping waiting approval when session has extra p
     decidedBy: null,
     decisionScope: 'once',
     id: `extra-approval-${extraRun.id}`,
-    kind: 'run_command',
+    kind: 'bash',
     payload: {},
     runId: extraRun.id,
     sessionId: session.id,

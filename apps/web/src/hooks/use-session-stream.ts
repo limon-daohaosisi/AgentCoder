@@ -31,6 +31,17 @@ function isCacheRelevantEvent(event: SessionEventEnvelope['event']) {
   return !event.type.startsWith('message.');
 }
 
+function isMessageCacheRelevantEvent(event: SessionEventEnvelope['event']) {
+  return (
+    event.type === 'tool.pending' ||
+    event.type === 'approval.created' ||
+    event.type === 'approval.resolved' ||
+    event.type === 'tool.running' ||
+    event.type === 'tool.completed' ||
+    event.type === 'tool.failed'
+  );
+}
+
 export function useSessionStream(sessionId?: string, workspaceId?: string) {
   const queryClient = useQueryClient();
   const [events, setEvents] = useState<SessionEventEnvelope[]>([]);
@@ -77,6 +88,12 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
               queryKey: ['sessions', workspaceId]
             });
           }
+        }
+
+        if (isMessageCacheRelevantEvent(envelope.event)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['messages', sessionId]
+          });
         }
       } catch {
         setStatus('error');

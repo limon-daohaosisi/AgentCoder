@@ -10,6 +10,20 @@ export type ToolCallStatus =
   | 'failed';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
+export type ToolName =
+  | 'apply_patch'
+  | 'bash'
+  | 'edit'
+  | 'glob'
+  | 'grep'
+  | 'read'
+  | 'write';
+
+export type ApprovalKind = Extract<
+  ToolName,
+  'apply_patch' | 'bash' | 'edit' | 'write'
+>;
+
 export type MessageRole = 'user' | 'assistant';
 export type MessageStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -17,7 +31,7 @@ export type MessageRuntimeMetadata = {
   format?:
     | { type: 'text' }
     | { schema: Record<string, unknown>; type: 'json_schema' };
-  toolOverrides?: Record<string, boolean>;
+  toolOverrides?: Partial<Record<ToolName, boolean>>;
   userSystem?: string;
   variant?: string;
 };
@@ -102,7 +116,7 @@ export type MessagePart =
       providerMetadata?: Record<string, unknown>;
       state: ToolState;
       toolCallId: string;
-      toolName: string;
+      toolName: ToolName;
       type: 'tool';
     })
   | {
@@ -247,6 +261,7 @@ export type SessionDto = {
 export type ResumeSessionDto = {
   canResume: boolean;
   checkpoint?: string;
+  pendingApprovals?: ApprovalDto[];
   session?: SessionDto;
 };
 
@@ -317,7 +332,7 @@ export type ToolCallDto = {
   runId?: string;
   sessionId: string;
   status: ToolCallStatus;
-  toolName: string;
+  toolName: ToolName;
   updatedAt: string;
 };
 
@@ -328,7 +343,7 @@ export type ApprovalDto = {
   decisionReasonText?: string;
   decisionScope?: 'once' | 'session_rule';
   id: string;
-  kind: 'write_file' | 'run_command';
+  kind: ApprovalKind;
   payload: Record<string, unknown>;
   runId?: string;
   sessionId: string;

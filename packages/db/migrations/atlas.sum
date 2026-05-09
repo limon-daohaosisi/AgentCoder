@@ -1,5 +1,6 @@
-h1:JdkSvp6/QCkYrqnq4UWo5g7Vx1G3m1DzEMt5o7N/nvU=
+h1:tt9o4PYZNbkghqpePB6ATIJROpMcmQlkCO0Rf1kCVks=
 20260330144844_init_schema.sql h1:JlV6XwjA4iUC+MwPbgyn/qq/BT4zw1mUz5ytD8oN32k=
 20260428054903_context_skeleton_message_parts.sql h1:x3/LqWRovPzKh2L9PDBrJNkgDMdusqkN2ZwktMVi/XE=
 20260429101627_agent_runs_and_cancellation.sql h1:d4loRlJGgaXX4CGVT20G2A0r98ADyhB6Z2sQF600Imw=
 20260506130815_remove_session_failed_status.sql h1:qd31lAl6CxugEa4F+zpNYEAZhp4T90pXMq36h4mi/2s=
+20260508165230_tool_system_rebuild_core_tools.sql h1:u5Fs9mjgvADDnxaBDaJ/3o0rREjTdGdGtNy2YMD8j7Q=

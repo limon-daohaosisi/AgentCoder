@@ -127,7 +127,7 @@ table "tool_calls" {
   }
 
   check "tool_calls_valid_tool_name" {
-    expr = "tool_name IN ('read_file', 'write_file', 'run_command')"
+    expr = "tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit')"
   }
 
   check "tool_calls_valid_status" {

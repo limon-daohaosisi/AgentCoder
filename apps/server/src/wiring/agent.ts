@@ -1,5 +1,6 @@
 import {
   Lifecycle,
+  prepareToolExecution,
   RunLoop,
   SessionProcessor,
   ToolExecutor,
@@ -17,6 +18,7 @@ import { messagePartService } from '../services/session/message/part-service.js'
 import { sessionEventService } from '../services/session-events/event-service.js';
 import { sessionService } from '../services/session/service.js';
 import { agentRunService } from '../services/agent/run-service.js';
+import { fileSnapshotService } from '../services/agent/file-snapshot-service.js';
 import { toolStateService } from '../services/agent/tool-state-service.js';
 
 export function buildSessionProcessorDeps(
@@ -29,6 +31,22 @@ export function buildSessionProcessorDeps(
     createToolPartWithToolCall: (input) =>
       toolStateService.createToolPartWithToolCall(input),
     persist: (callback) => Database.transaction(callback),
+    prepareToolExecution: (input) =>
+      prepareToolExecution({
+        ...input,
+        services: {
+          createFileSnapshot: (snapshotInput: {
+            sessionId: string;
+            snapshot: import('@opencode/agent').FileSnapshotArtifact;
+            toolCallId: string;
+          }) => fileSnapshotService.createFromRead(snapshotInput),
+          getLatestFileSnapshot: (snapshotInput: {
+            path: string;
+            requireFullRead?: boolean;
+            sessionId: string;
+          }) => fileSnapshotService.getLatestForPath(snapshotInput)
+        }
+      }),
     streamModelResponse,
     updateMessagePart: (part) => messagePartService.updatePart(part),
     updateMessageRuntime: (input) => messageService.updateMessageRuntime(input),
@@ -46,6 +64,11 @@ export const toolExecutor = new ToolExecutor({
   appendSessionEvent: (event) => sessionEventService.append(event),
   getMessagePart: (partId) => messagePartService.getPart(partId),
   persist: (callback) => Database.transaction(callback),
+  services: {
+    createFileSnapshot: (input) => fileSnapshotService.createFromRead(input),
+    getLatestFileSnapshot: (input) =>
+      fileSnapshotService.getLatestForPath(input)
+  },
   updateToolPartWithToolCall: (input) =>
     toolStateService.updateToolPartWithToolCall(input)
 });

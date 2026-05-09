@@ -482,6 +482,7 @@ export function buildSessionView(
   fileTree: MockFileNode[],
   resumeState?: ResumeSessionDto
 ): MockSessionView {
+  const pendingApprovals = resumeState?.pendingApprovals ?? [];
   const detailPane = getDetailPane(session, fileTree, resumeState);
   const template =
     getSessionMode(session.status) === 'planning'
@@ -496,7 +497,8 @@ export function buildSessionView(
     goalText: session.goalText,
     id: session.id,
     mode: getSessionMode(session.status),
-    pendingApprovals: session.status === 'waiting_approval' ? 1 : 0,
+    pendingApprovals:
+      session.status === 'waiting_approval' ? pendingApprovals.length || 1 : 0,
     progressLabel: getSessionProgressLabel(session.status),
     status: session.status,
     summary: getSessionSummary(session),

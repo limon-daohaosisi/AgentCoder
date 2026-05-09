@@ -1,23 +1,17 @@
 import {
   type MessagePart,
-  type SessionEvent,
   type SessionCheckpoint,
-  type ToolCallDto
+  type SessionEvent,
+  type ToolCallDto,
+  type ToolName
 } from '@opencode/shared';
 import { buildSessionCheckpoint } from './checkpoint.js';
 import {
-  buildWriteFileApproval,
-  executeWriteFile,
-  type ReadFileToolInput,
-  readFileInputSchema,
-  readFileTool,
-  runCommandInputSchema,
-  runCommandTool,
-  type RunCommandToolInput,
-  type WriteFileToolInput,
-  writeFileInputSchema
-} from './tools/index.js';
-import type { ToolName } from './tools/types.js';
+  buildToolExecutionContext,
+  type ToolServices,
+  type ToolPresentation
+} from './tools/core.js';
+import { toolByName } from './tools/index.js';
 
 function getAbortReason(signal: AbortSignal | undefined) {
   if (!signal?.aborted) {
@@ -31,6 +25,22 @@ function getAbortReason(signal: AbortSignal | undefined) {
       : 'Run cancelled by user';
 }
 
+function formatError(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : 'Unknown tool execution error.';
+}
+
+function getToolDefinition(toolName: ToolName) {
+  const definition = toolByName[toolName];
+
+  if (!definition) {
+    throw new Error(`Unsupported tool: ${toolName}`);
+  }
+
+  return definition;
+}
+
 type ApprovalResult = {
   kind: 'approval';
   payload: Record<string, unknown>;
@@ -38,111 +48,113 @@ type ApprovalResult = {
 
 type AutoExecutionResult = {
   kind: 'auto';
-  output: Record<string, unknown>;
+  presentation: ToolPresentation;
 };
-
-type ParsedToolInput =
-  | {
-      input: ReadFileToolInput;
-      toolName: 'read_file';
-    }
-  | {
-      input: WriteFileToolInput;
-      toolName: 'write_file';
-    }
-  | {
-      input: RunCommandToolInput;
-      toolName: 'run_command';
-    };
 
 export type ToolPreparationResult = ApprovalResult | AutoExecutionResult;
 
-function parseToolInput(
-  toolName: ToolName,
-  input: Record<string, unknown>
-): ParsedToolInput {
-  switch (toolName) {
-    case 'read_file':
-      return {
-        input: readFileInputSchema.parse(input),
-        toolName
-      };
-    case 'write_file':
-      return {
-        input: writeFileInputSchema.parse(input),
-        toolName
-      };
-    case 'run_command':
-      return {
-        input: runCommandInputSchema.parse(input),
-        toolName
-      };
-  }
-}
-
 export function toolRequiresApproval(toolName: ToolName) {
-  return toolName === 'write_file' || toolName === 'run_command';
+  return getToolDefinition(toolName).approval === 'required';
 }
 
-export async function prepareToolExecution(
-  toolName: ToolName,
-  rawInput: Record<string, unknown>,
-  workspaceRoot: string,
-  options: { signal?: AbortSignal } = {}
-): Promise<ToolPreparationResult> {
-  const abortReason = getAbortReason(options.signal);
+export async function prepareToolExecution(input: {
+  rawInput: Record<string, unknown>;
+  services?: ToolServices;
+  signal?: AbortSignal;
+  toolCallId: string;
+  toolName: ToolName;
+  sessionId: string;
+  workspaceRoot: string;
+  now?: () => string;
+}): Promise<ToolPreparationResult> {
+  const abortReason = getAbortReason(input.signal);
 
   if (abortReason) {
     throw new Error(abortReason);
   }
 
-  const parsed = parseToolInput(toolName, rawInput);
+  const definition = getToolDefinition(input.toolName);
+  const parsedInput = definition.inputSchema.parse(input.rawInput);
+  const context = buildToolExecutionContext({
+    now: input.now,
+    services: input.services,
+    sessionId: input.sessionId,
+    signal: input.signal,
+    toolCallId: input.toolCallId,
+    workspaceRoot: input.workspaceRoot
+  });
 
-  switch (parsed.toolName) {
-    case 'read_file':
-      return {
-        kind: 'auto',
-        output: await readFileTool(parsed.input, workspaceRoot, options)
-      };
-    case 'write_file':
-      return {
-        kind: 'approval',
-        payload: await buildWriteFileApproval(parsed.input, workspaceRoot)
-      };
-    case 'run_command':
-      return {
-        kind: 'approval',
-        payload: {
-          command: parsed.input.command,
-          summary: 'Run non-interactive shell command after approval.',
-          timeoutMs: parsed.input.timeoutMs
-        }
-      };
+  if (definition.approval === 'required') {
+    if (!definition.buildApproval) {
+      throw new Error(
+        `Approval builder is missing for tool ${input.toolName}.`
+      );
+    }
+
+    return {
+      kind: 'approval',
+      payload: await definition.buildApproval({
+        context,
+        input: parsedInput
+      })
+    };
   }
+
+  const output = await definition.execute({ context, input: parsedInput });
+
+  return {
+    kind: 'auto',
+    presentation: definition.present({
+      context,
+      input: parsedInput,
+      output
+    })
+  };
 }
 
-export async function executeApprovedTool(
-  toolName: Extract<ToolName, 'run_command' | 'write_file'>,
-  rawInput: Record<string, unknown>,
-  workspaceRoot: string,
-  options: { signal?: AbortSignal } = {}
-) {
-  const abortReason = getAbortReason(options.signal);
+export async function executeApprovedTool(input: {
+  approvalPayload?: Record<string, unknown>;
+  rawInput: Record<string, unknown>;
+  services?: ToolServices;
+  signal?: AbortSignal;
+  toolCallId: string;
+  toolName: ToolName;
+  sessionId: string;
+  workspaceRoot: string;
+  now?: () => string;
+}) {
+  const abortReason = getAbortReason(input.signal);
 
   if (abortReason) {
     throw new Error(abortReason);
   }
 
-  const parsed = parseToolInput(toolName, rawInput);
+  const definition = getToolDefinition(input.toolName);
 
-  switch (parsed.toolName) {
-    case 'write_file':
-      return executeWriteFile(parsed.input, workspaceRoot, options);
-    case 'run_command':
-      return runCommandTool(parsed.input, workspaceRoot, options);
+  if (definition.approval !== 'required') {
+    throw new Error(`Tool ${input.toolName} does not require approval.`);
   }
 
-  throw new Error(`Unsupported approval tool: ${toolName}`);
+  const parsedInput = definition.inputSchema.parse(input.rawInput);
+  const context = buildToolExecutionContext({
+    now: input.now,
+    services: input.services,
+    sessionId: input.sessionId,
+    signal: input.signal,
+    toolCallId: input.toolCallId,
+    workspaceRoot: input.workspaceRoot
+  });
+  const output = await definition.execute({
+    approvalPayload: input.approvalPayload,
+    context,
+    input: parsedInput
+  });
+
+  return definition.present({
+    context,
+    input: parsedInput,
+    output
+  });
 }
 
 export type ToolExecutorDeps = {
@@ -150,6 +162,7 @@ export type ToolExecutorDeps = {
   getMessagePart(partId: string): MessagePart | null;
   now?: () => string;
   persist?<T>(callback: () => T): T;
+  services?: ToolServices;
   updateToolPartWithToolCall(input: {
     part: Extract<MessagePart, { type: 'tool' }>;
     toolCall: {
@@ -172,33 +185,6 @@ export type ToolExecutorResult =
   | { checkpoint: SessionCheckpoint; kind: 'paused_for_approval' }
   | { kind: 'cancelled'; reason: string }
   | { error: string; kind: 'failed' };
-
-function formatToolOutput(toolName: ToolName, output: Record<string, unknown>) {
-  if (toolName === 'read_file' && typeof output.content === 'string') {
-    return output.content;
-  }
-
-  if (toolName === 'write_file') {
-    return `Updated ${String(output.path ?? 'file')} successfully.`;
-  }
-
-  if (toolName === 'run_command') {
-    const stdout = typeof output.stdout === 'string' ? output.stdout : '';
-    const stderr = typeof output.stderr === 'string' ? output.stderr : '';
-    const exitCode = output.exitCode;
-    return [`Exit code: ${String(exitCode ?? 'null')}`, stdout, stderr]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  return JSON.stringify(output);
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : 'Unknown tool execution error.';
-}
 
 export class ToolExecutor {
   constructor(private readonly deps: ToolExecutorDeps) {}
@@ -263,6 +249,7 @@ export class ToolExecutor {
   }
 
   async executeApprovedPart(input: {
+    approvalPayload?: Record<string, unknown>;
     decision: 'approved' | 'rejected';
     part: Extract<MessagePart, { type: 'tool' }>;
     runId: string;
@@ -320,6 +307,7 @@ export class ToolExecutor {
   }
 
   private async executePart(input: {
+    approvalPayload?: Record<string, unknown>;
     part: Extract<MessagePart, { type: 'tool' }>;
     runId: string;
     signal?: AbortSignal;
@@ -337,6 +325,10 @@ export class ToolExecutor {
       ...input.part,
       state: {
         input: input.part.state.input,
+        metadata:
+          input.part.state.status === 'pending'
+            ? undefined
+            : input.part.state.metadata,
         startedAt,
         status: 'running'
       }
@@ -366,32 +358,48 @@ export class ToolExecutor {
     });
 
     try {
-      const prepared = await prepareToolExecution(
-        input.part.toolName as ToolName,
-        input.part.state.input,
-        input.workspaceRoot,
-        { signal: input.signal }
-      );
-      const output =
-        prepared.kind === 'auto'
-          ? prepared.output
-          : await executeApprovedTool(
-              input.part.toolName as Extract<
-                ToolName,
-                'run_command' | 'write_file'
-              >,
-              input.part.state.input,
-              input.workspaceRoot,
-              { signal: input.signal }
-            );
+      const presentation = toolRequiresApproval(input.part.toolName as ToolName)
+        ? await executeApprovedTool({
+            approvalPayload: input.approvalPayload,
+            now: this.deps.now,
+            rawInput: input.part.state.input,
+            services: this.deps.services,
+            sessionId: input.sessionId,
+            signal: input.signal,
+            toolCallId: input.part.toolCallId,
+            toolName: input.part.toolName as ToolName,
+            workspaceRoot: input.workspaceRoot
+          })
+        : await (async () => {
+            const prepared = await prepareToolExecution({
+              now: this.deps.now,
+              rawInput: input.part.state.input,
+              services: this.deps.services,
+              sessionId: input.sessionId,
+              signal: input.signal,
+              toolCallId: input.part.toolCallId,
+              toolName: input.part.toolName as ToolName,
+              workspaceRoot: input.workspaceRoot
+            });
+
+            if (prepared.kind !== 'auto') {
+              throw new Error(
+                `Expected auto execution result for tool ${input.part.toolName}.`
+              );
+            }
+
+            return prepared.presentation;
+          })();
       const completedAt = this.now();
       const completedPart: Extract<MessagePart, { type: 'tool' }> = {
         ...runningPart,
         state: {
+          attachments: presentation.attachments,
           completedAt,
           input: input.part.state.input,
-          outputText: formatToolOutput(input.part.toolName as ToolName, output),
-          payload: output,
+          metadata: presentation.metadata,
+          outputText: presentation.outputText,
+          payload: presentation.payload,
           startedAt,
           status: 'completed'
         }
@@ -404,7 +412,7 @@ export class ToolExecutor {
             toolCall: {
               completedAt,
               id: input.part.toolCallId,
-              result: output,
+              result: presentation.payload,
               startedAt,
               status: 'completed',
               updatedAt: completedAt

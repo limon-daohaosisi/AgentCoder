@@ -1,31 +1,32 @@
-import path from 'node:path';
-
-const blockedCommandFragments = [
-  'sudo',
-  'rm -rf /',
-  'reboot',
-  'shutdown',
-  'vim',
+const INTERACTIVE_COMMANDS = new Set([
+  'less',
+  'more',
   'nano',
-  'less'
-];
+  'nvim',
+  'top',
+  'vim',
+  'watch'
+]);
 
-export function resolveWorkspacePath(
-  workspaceRoot: string,
-  relativePath: string
-) {
-  const root = path.resolve(workspaceRoot);
-  const target = path.resolve(root, relativePath);
-
-  if (!target.startsWith(root)) {
-    throw new Error('Path escapes workspace root.');
-  }
-
-  return target;
+function splitCommandSegments(command: string) {
+  return command
+    .split(/(?:&&|\|\||;|\|)/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
 }
 
-export function assertSafeCommand(command: string) {
-  if (blockedCommandFragments.some((fragment) => command.includes(fragment))) {
-    throw new Error(`Blocked command: ${command}`);
+export function assertNonInteractiveCommand(command: string) {
+  for (const segment of splitCommandSegments(command)) {
+    const baseCommand = segment.split(/\s+/u)[0]?.toLowerCase();
+
+    if (!baseCommand) {
+      continue;
+    }
+
+    if (INTERACTIVE_COMMANDS.has(baseCommand)) {
+      throw new Error(
+        `Command ${baseCommand} is not supported in the non-interactive bash tool.`
+      );
+    }
   }
 }

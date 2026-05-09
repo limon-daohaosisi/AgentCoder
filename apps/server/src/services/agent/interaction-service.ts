@@ -282,6 +282,7 @@ export class SessionInteractionService {
         }
 
         await this.runtimeLifecycle.continueApprovalRun({
+          approvalPayload: ctx.approval.payload,
           decision: input.decision,
           part: ctx.part,
           runId: ctx.runId,

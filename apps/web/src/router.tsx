@@ -11,6 +11,7 @@ import {
   useParams
 } from '@tanstack/react-router';
 import { AppShell } from './components/app-shell';
+import { ApprovalCenter } from './features/approvals/approval-center';
 import { Composer } from './features/chat/composer';
 import { MessageList } from './features/chat/message-list';
 import { TimelinePanel } from './features/chat/timeline-panel';
@@ -403,6 +404,7 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
   const canCancelRun =
     currentSession?.status === 'executing' ||
     currentSession?.status === 'waiting_approval';
+  const pendingApprovals = resumeQuery.data?.pendingApprovals ?? [];
   const isComposerDisabled =
     !props.sessionId || submitMessageMutation.isPending || !canSubmitMessage;
 
@@ -537,6 +539,23 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
 
                 <TimelinePanel items={timelineItems} />
               </section>
+
+              {pendingApprovals.length > 0 && currentSession ? (
+                <ApprovalCenter
+                  approvals={pendingApprovals}
+                  onResolved={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ['messages', currentSession.id]
+                    });
+                    void queryClient.invalidateQueries({
+                      queryKey: ['resume-session', currentSession.id]
+                    });
+                    void queryClient.invalidateQueries({
+                      queryKey: ['session', currentSession.id]
+                    });
+                  }}
+                />
+              ) : null}
             </>
           ) : (
             <EmptyWorkspaceState />

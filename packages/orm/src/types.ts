@@ -19,6 +19,9 @@ export type NewMessagePart = InferInsertModel<typeof schema.messageParts>;
 export type SessionEventRow = InferSelectModel<typeof schema.sessionEvents>;
 export type NewSessionEvent = InferInsertModel<typeof schema.sessionEvents>;
 
+export type ArtifactRow = InferSelectModel<typeof schema.artifacts>;
+export type NewArtifact = InferInsertModel<typeof schema.artifacts>;
+
 export type ToolCallRow = InferSelectModel<typeof schema.toolCalls>;
 export type NewToolCall = InferInsertModel<typeof schema.toolCalls>;
 

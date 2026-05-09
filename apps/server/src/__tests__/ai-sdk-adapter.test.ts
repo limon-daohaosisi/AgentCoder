@@ -1,5 +1,7 @@
 import {
   ContextBuilder,
+  bashInputSchema,
+  readInputSchema,
   toAiSdkMessages,
   toAiSdkToolSet,
   toToolPolicies,
@@ -52,14 +54,17 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
     sessionId: session.id,
     state: {
       completedAt: '2026-04-27T00:00:01.000Z',
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       outputText: 'export const ok = true;\n',
-      payload: { content: 'export const ok = true;\n', path: 'src/index.ts' },
+      payload: {
+        content: 'export const ok = true;\n',
+        filePath: 'src/index.ts'
+      },
       startedAt: '2026-04-27T00:00:00.000Z',
       status: 'completed'
     },
     toolCallId: 'tool-call-1',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
 
@@ -83,9 +88,9 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
       content: [
         { text: 'I will inspect the file.', type: 'text' },
         {
-          input: { path: 'src/index.ts' },
+          input: { filePath: 'src/index.ts' },
           toolCallId: 'model-call-1',
-          toolName: 'read_file',
+          toolName: 'read',
           type: 'tool-call'
         }
       ],
@@ -96,7 +101,7 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
         {
           output: { type: 'text', value: 'export const ok = true;\n' },
           toolCallId: 'model-call-1',
-          toolName: 'read_file',
+          toolName: 'read',
           type: 'tool-result'
         }
       ],
@@ -111,19 +116,16 @@ test('Tool adapter exposes manual AI SDK tools and separate approval policies', 
       approval: 'never',
       description: 'Read a file',
       enabled: true,
-      inputSchema: { properties: { path: { type: 'string' } }, type: 'object' },
-      name: 'read_file',
+      inputSchema: readInputSchema,
+      name: 'read',
       source: 'builtin'
     },
     {
       approval: 'required',
       description: 'Run a command',
       enabled: true,
-      inputSchema: {
-        properties: { command: { type: 'string' } },
-        type: 'object'
-      },
-      name: 'run_command',
+      inputSchema: bashInputSchema,
+      name: 'bash',
       source: 'builtin'
     }
   ];
@@ -133,10 +135,10 @@ test('Tool adapter exposes manual AI SDK tools and separate approval policies', 
   });
   const policies = toToolPolicies(resolvedTools);
 
-  assert.ok(toolSet.read_file);
-  assert.equal(typeof toolSet.read_file, 'object');
-  assert.equal('execute' in toolSet.read_file, false);
-  assert.equal(policies.run_command?.approval, 'required');
+  assert.ok(toolSet.read);
+  assert.equal(typeof toolSet.read, 'object');
+  assert.equal('execute' in toolSet.read, false);
+  assert.equal(policies.bash?.approval, 'required');
 });
 
 test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () => {
@@ -160,15 +162,15 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
     sessionId: session.id,
     state: {
       completedAt: '2026-04-27T00:00:01.000Z',
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       metadata: { exposePayload: true },
       outputText: 'Visible fallback text',
-      payload: { lineCount: 12, path: 'src/index.ts' },
+      payload: { filePath: 'src/index.ts', lineCount: 12 },
       startedAt: '2026-04-27T00:00:00.000Z',
       status: 'completed'
     },
     toolCallId: 'tool-call-json',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
   partService.appendPart({
@@ -185,13 +187,13 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
         }
       ],
       completedAt: '2026-04-27T00:00:03.000Z',
-      input: { path: 'result.txt' },
+      input: { filePath: 'result.txt' },
       outputText: 'See attached result.',
       startedAt: '2026-04-27T00:00:02.000Z',
       status: 'completed'
     },
     toolCallId: 'tool-call-file',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
 
@@ -214,10 +216,10 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
       {
         output: {
           type: 'json',
-          value: { lineCount: 12, path: 'src/index.ts' }
+          value: { filePath: 'src/index.ts', lineCount: 12 }
         },
         toolCallId: 'model-call-json',
-        toolName: 'read_file',
+        toolName: 'read',
         type: 'tool-result'
       },
       {
@@ -233,7 +235,7 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
           ]
         },
         toolCallId: 'model-call-file',
-        toolName: 'read_file',
+        toolName: 'read',
         type: 'tool-result'
       }
     ]
@@ -263,11 +265,11 @@ test('ContextBuilder repairs dangling tools outside active approval waits', () =
     order: 0,
     sessionId: session.id,
     state: {
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       status: 'pending'
     },
     toolCallId: 'tool-call-dangling',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
 
@@ -298,4 +300,97 @@ test('ContextBuilder repairs dangling tools outside active approval waits', () =
     ),
     true
   );
+});
+
+test('AI SDK adapter rebuilds failed approved tool results as error-text tool messages', () => {
+  const session = createSession();
+
+  messageService.createMessage({
+    content: [{ text: 'Edit src/index.ts', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    sessionId: session.id
+  });
+
+  partService.appendPart({
+    messageId: assistant.id,
+    modelToolCallId: 'model-call-edit-failed',
+    order: 0,
+    sessionId: session.id,
+    state: {
+      completedAt: '2026-04-27T00:00:01.000Z',
+      errorText:
+        'File changed since it was last read. Read it again before modifying it.',
+      input: {
+        filePath: 'src/index.ts',
+        newString: 'hello',
+        oldString: 'updated',
+        replaceAll: false
+      },
+      payload: {
+        error:
+          'File changed since it was last read. Read it again before modifying it.',
+        ok: false
+      },
+      reason: 'tool_error',
+      startedAt: '2026-04-27T00:00:00.000Z',
+      status: 'error'
+    },
+    toolCallId: 'tool-call-edit-failed',
+    toolName: 'edit',
+    type: 'tool'
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId)
+  });
+  const messages = toAiSdkMessages(
+    builder.build({
+      sessionId: session.id,
+      workspaceRoot: environment.workspaceRoot
+    })
+  );
+
+  assert.deepEqual(messages, [
+    {
+      content: [{ text: 'Edit src/index.ts', type: 'text' }],
+      role: 'user'
+    },
+    {
+      content: [
+        {
+          input: {
+            filePath: 'src/index.ts',
+            newString: 'hello',
+            oldString: 'updated',
+            replaceAll: false
+          },
+          toolCallId: 'model-call-edit-failed',
+          toolName: 'edit',
+          type: 'tool-call'
+        }
+      ],
+      role: 'assistant'
+    },
+    {
+      content: [
+        {
+          output: {
+            type: 'error-text',
+            value:
+              'File changed since it was last read. Read it again before modifying it.'
+          },
+          toolCallId: 'model-call-edit-failed',
+          toolName: 'edit',
+          type: 'tool-result'
+        }
+      ],
+      role: 'tool'
+    }
+  ]);
 });

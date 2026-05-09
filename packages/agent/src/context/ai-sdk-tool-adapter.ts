@@ -1,4 +1,4 @@
-import { jsonSchema, tool, type ToolSet } from 'ai';
+import { tool, type ToolSet } from 'ai';
 import type { ResolvedTool, ResolvedToolPolicyMap } from './schema.js';
 
 export function toToolPolicies(tools: ResolvedTool[]): ResolvedToolPolicyMap {
@@ -24,8 +24,7 @@ export function toAiSdkToolSet(input: {
       definition.name,
       tool({
         description: definition.description,
-        inputSchema: jsonSchema(definition.inputSchema),
-        strict: true
+        inputSchema: definition.inputSchema
       })
     ])
   ) as ToolSet;

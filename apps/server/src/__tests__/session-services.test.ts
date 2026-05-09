@@ -111,7 +111,7 @@ test('sessionService only resumes approval checkpoints with a pending ToolPart',
       status: 'pending'
     },
     toolCallId: 'tool-call-resume',
-    toolName: 'run_command',
+    toolName: 'bash',
     type: 'tool',
     updatedAt: now
   };
@@ -128,7 +128,7 @@ test('sessionService only resumes approval checkpoints with a pending ToolPart',
       sessionId: session.id,
       status: 'pending_approval',
       taskId: null,
-      toolName: 'run_command',
+      toolName: 'bash',
       updatedAt: now
     }
   });
@@ -139,7 +139,7 @@ test('sessionService only resumes approval checkpoints with a pending ToolPart',
     decidedBy: null,
     decisionScope: 'once',
     id: 'approval-resume',
-    kind: 'run_command',
+    kind: 'bash',
     payload: {},
     sessionId: session.id,
     status: 'pending',

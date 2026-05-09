@@ -154,6 +154,20 @@ type AssistantMessageState = {
   toolParts: Extract<MessagePart, { type: 'tool' }>[];
 };
 
+type ApprovalCheckpointResult =
+  | {
+      approval: ApprovalDto;
+      checkpoint: SessionCheckpoint;
+      toolCall: ToolCallDto;
+    }
+  | { status: 'tool_error' };
+
+function isToolErrorApprovalCheckpoint(
+  value: ApprovalCheckpointResult
+): value is Extract<ApprovalCheckpointResult, { status: 'tool_error' }> {
+  return 'status' in value && value.status === 'tool_error';
+}
+
 function hasPartRunId(
   part: MessagePart
 ): part is MessagePart & { runId?: string } {
@@ -353,7 +367,20 @@ export class SessionProcessor {
         toolCall
       });
 
-      return { ...checkpoint, kind: 'paused_for_approval' };
+      if (isToolErrorApprovalCheckpoint(checkpoint)) {
+        return {
+          assistantMessageId: state.message?.id ?? '',
+          kind: 'tool_calls',
+          toolParts: []
+        };
+      }
+
+      return {
+        approval: checkpoint.approval,
+        checkpoint: checkpoint.checkpoint,
+        kind: 'paused_for_approval',
+        toolCall: checkpoint.toolCall
+      };
     }
 
     return {
@@ -622,12 +649,29 @@ export class SessionProcessor {
     input: ProcessTurnInput;
     part: Extract<MessagePart, { type: 'tool' }>;
     toolCall: ToolCallDto;
-  }) {
-    const approvalPayload = await this.prepareToolExecution(
-      input.part.toolName as ToolName,
-      input.part.state.input,
-      input.input.workspaceRoot
-    );
+  }): Promise<ApprovalCheckpointResult> {
+    let approvalPayload: Awaited<
+      ReturnType<SessionProcessor['prepareToolExecution']>
+    >;
+
+    try {
+      approvalPayload = await this.prepareToolExecution({
+        rawInput: input.part.state.input,
+        sessionId: input.input.sessionId,
+        toolCallId: input.part.toolCallId,
+        toolName: input.part.toolName as ToolName,
+        workspaceRoot: input.input.workspaceRoot
+      });
+    } catch (error) {
+      this.failSingleToolPart({
+        errorText: formatError(error),
+        part: input.part,
+        runId: input.input.runId,
+        sessionId: input.input.sessionId
+      });
+
+      return { status: 'tool_error' };
+    }
 
     if (approvalPayload.kind !== 'approval') {
       throw new Error('Expected approval payload for approval-required tool.');
@@ -664,6 +708,63 @@ export class SessionProcessor {
       checkpoint,
       toolCall: input.toolCall
     };
+  }
+
+  private failSingleToolPart(input: {
+    errorText: string;
+    part: Extract<MessagePart, { type: 'tool' }>;
+    runId?: string;
+    sessionId: string;
+  }) {
+    const completedAt = this.now();
+    const payload = { error: input.errorText, ok: false };
+    const failedPart: Extract<MessagePart, { type: 'tool' }> = {
+      ...input.part,
+      state: {
+        completedAt,
+        errorText: input.errorText,
+        input: input.part.state.input,
+        payload,
+        reason: 'tool_error',
+        startedAt:
+          input.part.state.status === 'running'
+            ? input.part.state.startedAt
+            : undefined,
+        status: 'error'
+      },
+      updatedAt: completedAt
+    };
+
+    this.persist(() => {
+      this.deps.updateToolPartWithToolCall({
+        part: failedPart,
+        toolCall: {
+          completedAt,
+          errorText: input.errorText,
+          id: input.part.toolCallId,
+          result: payload,
+          startedAt:
+            input.part.state.status === 'running'
+              ? input.part.state.startedAt
+              : undefined,
+          status: 'failed',
+          updatedAt: completedAt
+        }
+      });
+      this.appendPartUpdatedEvent({
+        messageId: failedPart.messageId,
+        part: failedPart,
+        runId: input.runId,
+        sessionId: input.sessionId
+      });
+      this.deps.appendSessionEvent({
+        error: input.errorText,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        toolCallId: input.part.toolCallId,
+        type: 'tool.failed'
+      });
+    });
   }
 
   private failToolParts(
@@ -831,15 +932,13 @@ export class SessionProcessor {
     return this.deps.now?.() ?? new Date().toISOString();
   }
 
-  private prepareToolExecution(
-    toolName: ToolName,
-    rawInput: Record<string, unknown>,
-    workspaceRoot: string
-  ) {
-    return (this.deps.prepareToolExecution ?? prepareToolExecution)(
-      toolName,
-      rawInput,
-      workspaceRoot
-    );
+  private prepareToolExecution(input: {
+    rawInput: Record<string, unknown>;
+    sessionId: string;
+    toolCallId: string;
+    toolName: ToolName;
+    workspaceRoot: string;
+  }) {
+    return (this.deps.prepareToolExecution ?? prepareToolExecution)(input);
   }
 }

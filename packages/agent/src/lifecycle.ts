@@ -95,6 +95,7 @@ type ResumeApprovalRunInput = {
 };
 
 type ContinueApprovalRunInput = {
+  approvalPayload?: Record<string, unknown>;
   decision: 'approved' | 'rejected';
   part: Extract<MessagePart, { type: 'tool' }>;
   runId: string;
@@ -125,6 +126,7 @@ export class Lifecycle {
       const part = input.part ?? this.resolveApprovalPart(input);
 
       return await this.continueApprovalRun({
+        approvalPayload: input.approval.payload,
         decision: input.decision,
         part,
         runId: input.runId,
@@ -141,6 +143,7 @@ export class Lifecycle {
   ): Promise<LifecycleResult> {
     try {
       await this.deps.toolExecutor.executeApprovedPart({
+        approvalPayload: input.approvalPayload,
         decision: input.decision,
         part: input.part,
         runId: input.runId,

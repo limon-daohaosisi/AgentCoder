@@ -48,11 +48,11 @@ function createActiveRun(sessionId: string) {
     order: 0,
     sessionId,
     state: {
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       status: 'pending'
     },
     toolCallId: 'route-tool-call',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool',
     updatedAt: now
   };
@@ -71,7 +71,7 @@ function createActiveRun(sessionId: string) {
       sessionId,
       status: 'pending',
       taskId: null,
-      toolName: 'read_file',
+      toolName: 'read',
       updatedAt: now
     }
   });
@@ -326,7 +326,7 @@ test('approval routes delegate approve and reject decisions to SessionInteractio
         approval: {
           createdAt: '2026-04-21T13:05:00.000Z',
           id: input.approvalId,
-          kind: 'run_command',
+          kind: 'bash',
           payload: {},
           sessionId: 'session-approval',
           status: input.decision,
@@ -338,7 +338,7 @@ test('approval routes delegate approve and reject decisions to SessionInteractio
           input: {},
           sessionId: 'session-approval',
           status: input.decision === 'approved' ? 'approved' : 'rejected',
-          toolName: 'run_command',
+          toolName: 'bash',
           updatedAt: '2026-04-21T13:05:30.000Z'
         }
       };

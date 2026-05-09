@@ -2,9 +2,11 @@ import type {
   FileAttachment,
   MessageDto,
   MessagePart,
-  MessageRuntimeMetadata
+  MessageRuntimeMetadata,
+  ToolName
 } from '@opencode/shared';
 import type { LanguageModel, ModelMessage, ToolSet } from 'ai';
+import type { z } from 'zod';
 
 export type MessageWithParts = MessageDto & {
   content: MessagePart[];
@@ -49,7 +51,7 @@ export type ContextPart =
       payload?: Record<string, unknown>;
       sourcePartId: string;
       toolCallId: string;
-      toolName: string;
+      toolName: ToolName;
       type: 'tool';
     };
 
@@ -83,7 +85,7 @@ export type ResolvedTool = {
   approval: 'never' | 'required';
   description: string;
   enabled: boolean;
-  inputSchema: Record<string, unknown>;
+  inputSchema: z.ZodTypeAny;
   name: string;
   source: 'builtin' | 'mcp' | 'plugin' | 'structured_output';
 };
