@@ -395,10 +395,7 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
   const detailPaneData =
     currentSessionView?.detailPane ??
     buildWorkspaceDetailPane(workspace, fileTree);
-  const timelineItems =
-    liveTimeline.length > 0
-      ? liveTimeline
-      : (currentSessionView?.timeline ?? []);
+  const timelineItems = liveTimeline;
   const canSubmitMessage =
     currentSession?.status === 'planning' || currentSession?.status === 'idle';
   const canCancelRun =
