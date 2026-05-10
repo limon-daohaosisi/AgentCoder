@@ -12,6 +12,47 @@ import type {
 
 export type ToolApproval = 'never' | 'required';
 
+export type ToolOutputVisibility = 'content' | 'json_fields' | 'text_only';
+
+export type ToolJsonFieldSpec = {
+  as?: string;
+  from: string;
+  maxChars?: number;
+};
+
+export type ToolAttachmentPolicy = {
+  allowedMimePrefixes?: string[];
+  includeTextFallback?: boolean;
+  maxAttachments?: number;
+  visibleToModel: boolean;
+};
+
+export type ToolTextPolicy = {
+  maxChars: number;
+  visibleToModel: boolean;
+};
+
+export type ToolErrorVisibility = 'error_text_only' | 'execution_denied_only';
+
+export type ToolErrorPolicy = {
+  visibleToModel: ToolErrorVisibility;
+};
+
+export type ToolOutputPolicy = {
+  attachments?: ToolAttachmentPolicy;
+  errors?: ToolErrorPolicy;
+  jsonFields?: ToolJsonFieldSpec[];
+  mode: ToolOutputVisibility;
+  text?: ToolTextPolicy;
+};
+
+export const DEFAULT_TOOL_OUTPUT_POLICY: ToolOutputPolicy = {
+  attachments: { visibleToModel: false },
+  errors: { visibleToModel: 'error_text_only' },
+  mode: 'text_only',
+  text: { maxChars: 8_000, visibleToModel: true }
+};
+
 export type ApprovalToolName = Extract<
   ToolName,
   'apply_patch' | 'bash' | 'edit' | 'write'
@@ -65,6 +106,7 @@ export type ToolDefinition<
   }): Promise<TOutput>;
   inputSchema: TInputSchema;
   name: ToolName;
+  outputPolicy?: ToolOutputPolicy;
   present(input: {
     context: ToolExecutionContext;
     input: z.infer<TInputSchema>;

@@ -37,6 +37,12 @@ export const globToolDefinition: ToolDefinition<
 > = {
   approval: 'never',
   description: GLOB_TOOL_PROMPT,
+  outputPolicy: {
+    attachments: { visibleToModel: false },
+    errors: { visibleToModel: 'error_text_only' },
+    mode: 'text_only',
+    text: { maxChars: 8_000, visibleToModel: true }
+  },
   async execute({ context, input }) {
     const cwd = await resolveWorkspaceDirectory(
       context.workspaceRoot,

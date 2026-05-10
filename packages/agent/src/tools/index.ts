@@ -23,7 +23,10 @@ export { writeToolDefinition } from './write/index.js';
 export { writeInputSchema } from './write/index.js';
 export { assertNonInteractiveCommand } from './guards.js';
 export { createUnifiedDiff } from './diff.js';
-export { buildToolExecutionContext } from './core.js';
+export {
+  buildToolExecutionContext,
+  DEFAULT_TOOL_OUTPUT_POLICY
+} from './core.js';
 export type {
   FileSnapshotArtifact,
   FileSnapshotStore,
@@ -32,10 +35,17 @@ export type {
 export type {
   AnyToolDefinition,
   ApprovalToolName,
+  ToolAttachmentPolicy,
   ToolDefinition,
+  ToolErrorPolicy,
+  ToolErrorVisibility,
   ToolExecutionContext,
+  ToolJsonFieldSpec,
   ToolName,
+  ToolOutputPolicy,
+  ToolOutputVisibility,
   ToolPresentation,
+  ToolTextPolicy,
   ToolServices
 } from './types.js';
 

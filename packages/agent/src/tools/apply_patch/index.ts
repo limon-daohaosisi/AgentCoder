@@ -447,6 +447,12 @@ export const applyPatchToolDefinition: ToolDefinition<
   ApplyPatchExecutionOutput
 > = {
   approval: 'required',
+  outputPolicy: {
+    attachments: { visibleToModel: false },
+    errors: { visibleToModel: 'error_text_only' },
+    mode: 'text_only',
+    text: { maxChars: 6_000, visibleToModel: true }
+  },
   async buildApproval({ context, input }) {
     const plan = await planPatch({
       patchText: input.patchText,

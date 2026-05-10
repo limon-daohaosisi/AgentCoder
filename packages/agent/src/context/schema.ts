@@ -7,6 +7,7 @@ import type {
 } from '@opencode/shared';
 import type { LanguageModel, ModelMessage, ToolSet } from 'ai';
 import type { z } from 'zod';
+import type { ToolOutputPolicy as AgentToolOutputPolicy } from '../tools/types.js';
 
 export type MessageWithParts = MessageDto & {
   content: MessagePart[];
@@ -44,9 +45,9 @@ export type ContextPart =
       attachments?: FileAttachment[];
       errorReason?: 'execution_denied' | 'interrupted' | 'tool_error';
       errorText?: string;
-      exposePayload?: boolean;
       input: Record<string, unknown>;
       modelToolCallId: string;
+      outputPolicy?: AgentToolOutputPolicy;
       outputText?: string;
       payload?: Record<string, unknown>;
       sourcePartId: string;

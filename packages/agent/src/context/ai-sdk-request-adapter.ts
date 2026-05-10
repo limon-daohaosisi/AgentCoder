@@ -1,4 +1,12 @@
 import type { LanguageModel, ModelMessage } from 'ai';
+import { DEFAULT_TOOL_OUTPUT_POLICY } from '../tools/index.js';
+import { truncateText } from '../tools/shared/truncation.js';
+import type {
+  ToolAttachmentPolicy,
+  ToolErrorVisibility,
+  ToolJsonFieldSpec,
+  ToolOutputPolicy
+} from '../tools/types.js';
 import { toAiSdkToolSet, toToolPolicies } from './ai-sdk-tool-adapter.js';
 import type {
   AiSdkTurnRequest,
@@ -52,24 +60,144 @@ function isJsonRecord(value: unknown): value is JsonObject {
   );
 }
 
+function truncateVisibleText(text: string, maxChars: number) {
+  return truncateText(text, maxChars).text;
+}
+
+function getNestedValue(value: Record<string, unknown>, path: string): unknown {
+  let current: unknown = value;
+
+  for (const segment of path.split('.')) {
+    if (
+      typeof current !== 'object' ||
+      current === null ||
+      Array.isArray(current) ||
+      !(segment in current)
+    ) {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return current;
+}
+
+function truncateJsonValue(value: JsonValue, maxChars?: number): JsonValue {
+  if (typeof value === 'string' && maxChars !== undefined) {
+    return truncateVisibleText(value, maxChars);
+  }
+
+  return value;
+}
+
+function pickVisiblePayload(input: {
+  jsonFields: ToolJsonFieldSpec[];
+  payload?: Record<string, unknown>;
+}): JsonObject | null {
+  if (!input.payload || input.jsonFields.length === 0) {
+    return null;
+  }
+
+  const visibleEntries = input.jsonFields.flatMap((field) => {
+    const rawValue = getNestedValue(input.payload!, field.from);
+
+    if (!isJsonValue(rawValue)) {
+      return [];
+    }
+
+    return [
+      [field.as ?? field.from, truncateJsonValue(rawValue, field.maxChars)]
+    ];
+  });
+
+  if (visibleEntries.length === 0) {
+    return null;
+  }
+
+  return Object.fromEntries(visibleEntries);
+}
+
+function buildVisibleAttachments(input: {
+  attachments: NonNullable<
+    Extract<ContextPart, { type: 'tool' }>['attachments']
+  >;
+  policy?: ToolAttachmentPolicy;
+}) {
+  if (!input.policy?.visibleToModel) {
+    return [];
+  }
+
+  const maxAttachments =
+    input.policy.maxAttachments ?? input.attachments.length;
+  const allowedMimePrefixes = input.policy.allowedMimePrefixes ?? [];
+
+  return input.attachments
+    .filter((attachment) => {
+      if (allowedMimePrefixes.length === 0) {
+        return true;
+      }
+
+      return allowedMimePrefixes.some((prefix) =>
+        attachment.mime.startsWith(prefix)
+      );
+    })
+    .slice(0, maxAttachments)
+    .map((attachment) => ({
+      filename: attachment.filename,
+      type: 'file-url' as const,
+      url: attachment.url
+    }));
+}
+
+function toErrorOutput(input: {
+  errorReason?: Extract<ContextPart, { type: 'tool' }>['errorReason'];
+  errorText?: string;
+  visibility: ToolErrorVisibility;
+}): ToolResultOutput {
+  if (
+    input.errorReason === 'execution_denied' &&
+    input.visibility === 'execution_denied_only'
+  ) {
+    return {
+      reason: input.errorText,
+      type: 'execution-denied'
+    } satisfies ToolResultOutput;
+  }
+
+  return {
+    type: 'error-text',
+    value: input.errorText ?? 'Tool execution failed.'
+  } satisfies ToolResultOutput;
+}
+
 function toContentOutput(
-  part: Extract<ContextPart, { type: 'tool' }>
+  part: Extract<ContextPart, { type: 'tool' }>,
+  policy: ToolOutputPolicy
 ): ToolResultOutput | null {
-  if (!part.attachments?.length) {
+  const attachments = part.attachments?.length
+    ? buildVisibleAttachments({
+        attachments: part.attachments,
+        policy: policy.attachments
+      })
+    : [];
+  const text =
+    policy.text?.visibleToModel !== false && part.outputText !== undefined
+      ? truncateVisibleText(
+          part.outputText,
+          policy.text?.maxChars ?? DEFAULT_TOOL_OUTPUT_POLICY.text!.maxChars
+        )
+      : undefined;
+
+  if (attachments.length === 0) {
     return null;
   }
 
   return {
     type: 'content',
     value: [
-      ...(part.outputText === undefined
-        ? []
-        : [{ text: part.outputText, type: 'text' as const }]),
-      ...part.attachments.map((attachment) => ({
-        filename: attachment.filename,
-        type: 'file-url' as const,
-        url: attachment.url
-      }))
+      ...(text === undefined ? [] : [{ text, type: 'text' as const }]),
+      ...attachments
     ]
   };
 }
@@ -77,45 +205,52 @@ function toContentOutput(
 function toToolResultOutput(
   part: Extract<ContextPart, { type: 'tool' }>
 ): ToolResultOutput {
-  const contentOutput = toContentOutput(part);
+  const policy = part.outputPolicy ?? DEFAULT_TOOL_OUTPUT_POLICY;
 
-  if (contentOutput) {
-    return contentOutput;
+  if (part.errorText !== undefined || part.errorReason !== undefined) {
+    return toErrorOutput({
+      errorReason: part.errorReason,
+      errorText: part.errorText,
+      visibility: policy.errors?.visibleToModel ?? 'error_text_only'
+    });
   }
 
-  if (part.exposePayload && isJsonRecord(part.payload)) {
-    const output = {
-      type: 'json' as const,
-      value: part.payload
+  if (policy.mode === 'content') {
+    const contentOutput = toContentOutput(part, policy);
+
+    if (contentOutput) {
+      return contentOutput;
+    }
+  }
+
+  if (policy.mode === 'json_fields') {
+    const visiblePayload = pickVisiblePayload({
+      jsonFields: policy.jsonFields ?? [],
+      payload: isJsonRecord(part.payload) ? part.payload : undefined
+    });
+
+    if (visiblePayload) {
+      return {
+        type: 'json',
+        value: visiblePayload
+      } satisfies ToolResultOutput;
+    }
+  }
+
+  if (policy.text?.visibleToModel !== false && part.outputText !== undefined) {
+    return {
+      type: 'text',
+      value: truncateVisibleText(
+        part.outputText,
+        policy.text?.maxChars ?? DEFAULT_TOOL_OUTPUT_POLICY.text!.maxChars
+      )
     } satisfies ToolResultOutput;
-
-    return output;
   }
 
-  if (part.outputText !== undefined) {
-    const output = {
-      type: 'text' as const,
-      value: part.outputText
-    } satisfies ToolResultOutput;
-
-    return output;
-  }
-
-  if (part.errorReason === 'execution_denied') {
-    const output = {
-      reason: part.errorText,
-      type: 'execution-denied' as const
-    } satisfies ToolResultOutput;
-
-    return output;
-  }
-
-  const output = {
-    type: 'error-text' as const,
-    value: part.errorText ?? 'Tool execution failed.'
+  return {
+    type: 'error-text',
+    value: 'Tool produced no model-visible output.'
   } satisfies ToolResultOutput;
-
-  return output;
 }
 
 type UserContent = Extract<ModelMessage, { role: 'user' }>['content'];

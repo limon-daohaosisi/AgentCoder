@@ -73,6 +73,12 @@ export const grepToolDefinition: ToolDefinition<
 > = {
   approval: 'never',
   description: GREP_TOOL_PROMPT,
+  outputPolicy: {
+    attachments: { visibleToModel: false },
+    errors: { visibleToModel: 'error_text_only' },
+    mode: 'text_only',
+    text: { maxChars: 12_000, visibleToModel: true }
+  },
   async execute({ context, input }) {
     const cwd = await resolveWorkspaceDirectory(
       context.workspaceRoot,

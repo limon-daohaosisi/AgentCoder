@@ -38,6 +38,12 @@ export const bashToolDefinition: ToolDefinition<
   }
 > = {
   approval: 'required',
+  outputPolicy: {
+    attachments: { visibleToModel: false },
+    errors: { visibleToModel: 'error_text_only' },
+    mode: 'text_only',
+    text: { maxChars: 12_000, visibleToModel: true }
+  },
   async buildApproval({ context, input }) {
     const workdir = await resolveWorkspaceDirectory(
       context.workspaceRoot,
@@ -88,25 +94,43 @@ export const bashToolDefinition: ToolDefinition<
   inputSchema: bashInputSchema,
   name: 'bash',
   present({ output }) {
-    const notes: string[] = [];
+    const modelNotes: string[] = [];
+    const internalNotes: string[] = [];
 
     if (output.stdoutOutputPath) {
-      notes.push(
+      modelNotes.push(
+        `STDOUT was truncated after ${output.stdout.length} preview characters (${output.stdoutTotalBytes} bytes total).`
+      );
+      internalNotes.push(
         `STDOUT was truncated. Full output saved to ${output.stdoutOutputPath} (${output.stdoutTotalBytes} bytes).`
       );
     }
 
     if (output.stderrOutputPath) {
-      notes.push(
+      modelNotes.push(
+        `STDERR was truncated after ${output.stderr.length} preview characters (${output.stderrTotalBytes} bytes total).`
+      );
+      internalNotes.push(
         `STDERR was truncated. Full output saved to ${output.stderrOutputPath} (${output.stderrTotalBytes} bytes).`
       );
     }
 
     if (output.timedOut) {
-      notes.push('Command timed out before completion.');
+      modelNotes.push('Command timed out before completion.');
+      internalNotes.push('Command timed out before completion.');
     }
 
     return {
+      outputText: [
+        `Exit code: ${String(output.exitCode ?? 'null')}`,
+        '',
+        'STDOUT:',
+        output.stdout || '(empty)',
+        '',
+        'STDERR:',
+        output.stderr || '(empty)',
+        ...(modelNotes.length > 0 ? ['', ...modelNotes] : [])
+      ].join('\n'),
       metadata: {
         command: output.command,
         description: output.description,
@@ -118,18 +142,9 @@ export const bashToolDefinition: ToolDefinition<
         stdoutTotalBytes: output.stdoutTotalBytes,
         timedOut: output.timedOut,
         truncated: output.truncated,
+        uiNotes: internalNotes,
         workdir: output.workdir
       },
-      outputText: [
-        `Exit code: ${String(output.exitCode ?? 'null')}`,
-        '',
-        'STDOUT:',
-        output.stdout || '(empty)',
-        '',
-        'STDERR:',
-        output.stderr || '(empty)',
-        ...(notes.length > 0 ? ['', ...notes] : [])
-      ].join('\n'),
       payload: output
     };
   }

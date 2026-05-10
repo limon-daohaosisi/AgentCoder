@@ -68,6 +68,12 @@ export const editToolDefinition: ToolDefinition<
   }
 > = {
   approval: 'required',
+  outputPolicy: {
+    attachments: { visibleToModel: false },
+    errors: { visibleToModel: 'error_text_only' },
+    mode: 'text_only',
+    text: { maxChars: 4_000, visibleToModel: true }
+  },
   async buildApproval({ context, input }) {
     const absolutePath = await resolveWorkspacePath(
       context.workspaceRoot,

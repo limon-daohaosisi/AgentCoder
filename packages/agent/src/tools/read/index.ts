@@ -48,6 +48,22 @@ export const readToolDefinition: ToolDefinition<
 > = {
   approval: 'never',
   description: READ_TOOL_PROMPT,
+  outputPolicy: {
+    attachments: { visibleToModel: false },
+    errors: { visibleToModel: 'error_text_only' },
+    jsonFields: [
+      { from: 'content', maxChars: 12_000 },
+      { from: 'filePath' },
+      { from: 'fullRead' },
+      { from: 'limit' },
+      { from: 'offset' },
+      { from: 'totalLines' },
+      { from: 'truncated' },
+      { from: 'type' }
+    ],
+    mode: 'json_fields',
+    text: { maxChars: 16_000, visibleToModel: true }
+  },
   async execute({ context, input }) {
     const offset = input.offset ?? 1;
     const limit = input.limit ?? DEFAULT_LIMIT;
