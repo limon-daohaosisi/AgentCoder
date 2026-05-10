@@ -20,6 +20,14 @@ function statusClassName(status: MockTimelineItem['status']) {
 }
 
 export function TimelinePanel({ items }: TimelinePanelProps) {
+  if (items.length === 0) {
+    return (
+      <article className="rounded-[24px] border border-sand bg-mist/80 p-4 text-sm leading-6 text-slate-600">
+        当前还没有执行事件。发送第一条消息后，这里会显示真实的运行、工具和审批时间线。
+      </article>
+    );
+  }
+
   return (
     <div className="space-y-3">
       {items.map((item) => (

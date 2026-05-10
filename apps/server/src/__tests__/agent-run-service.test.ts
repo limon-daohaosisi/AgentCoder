@@ -60,11 +60,11 @@ function createRunningFixture() {
     order: 0,
     sessionId: session.id,
     state: {
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       status: 'pending'
     },
     toolCallId: 'tool-call-running-tool',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool',
     updatedAt: now
   };
@@ -82,7 +82,7 @@ function createRunningFixture() {
       sessionId: session.id,
       status: 'pending',
       taskId: null,
-      toolName: 'read_file',
+      toolName: 'read',
       updatedAt: now
     }
   });
@@ -122,7 +122,7 @@ function createWaitingApprovalFixture() {
       status: 'pending'
     },
     toolCallId: 'tool-call-approval-tool',
-    toolName: 'run_command',
+    toolName: 'bash',
     type: 'tool',
     updatedAt: now
   };
@@ -140,7 +140,7 @@ function createWaitingApprovalFixture() {
       sessionId: session.id,
       status: 'pending_approval',
       taskId: null,
-      toolName: 'run_command',
+      toolName: 'bash',
       updatedAt: now
     }
   });
@@ -151,7 +151,7 @@ function createWaitingApprovalFixture() {
     decidedBy: null,
     decisionScope: 'once',
     id: 'approval-cancel-test',
-    kind: 'run_command',
+    kind: 'bash',
     payload: {},
     runId: run.id,
     sessionId: session.id,

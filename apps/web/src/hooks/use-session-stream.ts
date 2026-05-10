@@ -4,6 +4,12 @@ import { useQueryClient } from '@tanstack/react-query';
 
 type StreamStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
+type StreamState = {
+  events: SessionEventEnvelope[];
+  sessionId?: string;
+  status: StreamStatus;
+};
+
 const SESSION_EVENT_NAMES = [
   'run.created',
   'run.completed',
@@ -31,38 +37,72 @@ function isCacheRelevantEvent(event: SessionEventEnvelope['event']) {
   return !event.type.startsWith('message.');
 }
 
+function isMessageCacheRelevantEvent(event: SessionEventEnvelope['event']) {
+  return (
+    event.type === 'tool.pending' ||
+    event.type === 'approval.created' ||
+    event.type === 'approval.resolved' ||
+    event.type === 'tool.running' ||
+    event.type === 'tool.completed' ||
+    event.type === 'tool.failed'
+  );
+}
+
 export function useSessionStream(sessionId?: string, workspaceId?: string) {
   const queryClient = useQueryClient();
-  const [events, setEvents] = useState<SessionEventEnvelope[]>([]);
-  const [status, setStatus] = useState<StreamStatus>('disconnected');
+  const [streamState, setStreamState] = useState<StreamState>({
+    events: [],
+    sessionId: undefined,
+    status: 'disconnected'
+  });
 
   useEffect(() => {
     if (!sessionId) {
-      setEvents([]);
-      setStatus('disconnected');
+      setStreamState({
+        events: [],
+        sessionId: undefined,
+        status: 'disconnected'
+      });
       return;
     }
 
-    setEvents([]);
-    setStatus('connecting');
+    setStreamState({
+      events: [],
+      sessionId,
+      status: 'connecting'
+    });
 
     const eventSource = new EventSource(`/api/sessions/${sessionId}/stream`);
     const handleEnvelope = (messageEvent: MessageEvent<string>) => {
       try {
         const envelope = JSON.parse(messageEvent.data) as SessionEventEnvelope;
 
-        setEvents((currentEvents) => {
+        if (envelope.event.sessionId !== sessionId) {
+          return;
+        }
+
+        setStreamState((currentState) => {
+          if (currentState.sessionId !== sessionId) {
+            return currentState;
+          }
+
           if (
-            currentEvents.some(
+            currentState.events.some(
               (currentEvent) => currentEvent.sequenceNo === envelope.sequenceNo
             )
           ) {
-            return currentEvents;
+            return {
+              ...currentState,
+              status: 'connected'
+            };
           }
 
-          return [...currentEvents, envelope];
+          return {
+            ...currentState,
+            events: [...currentState.events, envelope],
+            status: 'connected'
+          };
         });
-        setStatus('connected');
 
         if (isCacheRelevantEvent(envelope.event)) {
           void queryClient.invalidateQueries({
@@ -78,19 +118,41 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
             });
           }
         }
+
+        if (isMessageCacheRelevantEvent(envelope.event)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['messages', sessionId]
+          });
+        }
       } catch {
-        setStatus('error');
+        setStreamState((currentState) =>
+          currentState.sessionId === sessionId
+            ? { ...currentState, status: 'error' }
+            : currentState
+        );
       }
     };
 
     const handleError = () => {
-      setStatus(
-        eventSource.readyState === EventSource.CLOSED ? 'disconnected' : 'error'
+      setStreamState((currentState) =>
+        currentState.sessionId === sessionId
+          ? {
+              ...currentState,
+              status:
+                eventSource.readyState === EventSource.CLOSED
+                  ? 'disconnected'
+                  : 'error'
+            }
+          : currentState
       );
     };
 
     eventSource.onopen = () => {
-      setStatus('connected');
+      setStreamState((currentState) =>
+        currentState.sessionId === sessionId
+          ? { ...currentState, status: 'connected' }
+          : currentState
+      );
     };
     eventSource.onerror = handleError;
 
@@ -107,9 +169,16 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
       }
 
       eventSource.close();
-      setStatus('disconnected');
     };
   }, [queryClient, sessionId, workspaceId]);
+
+  const events = streamState.sessionId === sessionId ? streamState.events : [];
+  const status =
+    streamState.sessionId === sessionId
+      ? streamState.status
+      : sessionId
+        ? 'connecting'
+        : 'disconnected';
 
   return {
     events,

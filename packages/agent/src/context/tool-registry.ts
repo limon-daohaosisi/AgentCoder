@@ -1,5 +1,4 @@
 import { toolRegistry } from '../tools/index.js';
-import { toolRequiresApproval } from '../tool-executor.js';
 import type { BuiltContext, ResolvedTool } from './schema.js';
 
 export type ToolResolutionInput = {
@@ -18,7 +17,7 @@ export function resolveTools(input: ToolResolutionInput): ResolvedTool[] {
       const enabled = overrides[definition.name] ?? true;
 
       return {
-        approval: toolRequiresApproval(definition.name) ? 'required' : 'never',
+        approval: definition.approval,
         description: definition.description,
         enabled,
         inputSchema: definition.inputSchema,

@@ -66,11 +66,11 @@ test('RunLoop rebuilds context and continues after auto tool execution', async (
           order: 0,
           sessionId: session.id,
           state: {
-            input: { path: 'src/index.ts' },
+            input: { filePath: 'src/index.ts' },
             status: 'pending'
           },
           toolCallId: 'tool-call-1',
-          toolName: 'read_file',
+          toolName: 'read',
           type: 'tool',
           updatedAt: '2026-04-27T00:00:00.000Z'
         }

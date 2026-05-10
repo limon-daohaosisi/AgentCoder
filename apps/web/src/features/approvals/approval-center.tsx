@@ -1,10 +1,12 @@
 import type { ApprovalDto } from '@opencode/shared';
+import { approveApproval, rejectApproval } from '../../lib/api';
 
 type ApprovalCenterProps = {
   approvals: ApprovalDto[];
+  onResolved?: (approvalId: string) => void;
 };
 
-export function ApprovalCenter({ approvals }: ApprovalCenterProps) {
+export function ApprovalCenter({ approvals, onResolved }: ApprovalCenterProps) {
   return (
     <section className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
       <div className="mb-4">
@@ -30,12 +32,22 @@ export function ApprovalCenter({ approvals }: ApprovalCenterProps) {
               <div className="flex gap-2">
                 <button
                   className="rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-white"
+                  onClick={() => {
+                    void approveApproval(approval.id).then(() => {
+                      onResolved?.(approval.id);
+                    });
+                  }}
                   type="button"
                 >
                   Approve
                 </button>
                 <button
                   className="rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-900"
+                  onClick={() => {
+                    void rejectApproval(approval.id).then(() => {
+                      onResolved?.(approval.id);
+                    });
+                  }}
                   type="button"
                 >
                   Reject

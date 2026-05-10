@@ -29,6 +29,23 @@ export function buildSystemContext(
     }
   ];
 
+  if (input.lastUserRuntime?.variant) {
+    const variant = input.lastUserRuntime.variant;
+    const isReadOnly = variant === 'plan';
+
+    blocks.push({
+      source: 'instruction',
+      text: [
+        '<system-reminder>',
+        `Current operational mode: ${variant}.`,
+        isReadOnly
+          ? 'You are currently in read-only mode. Prefer inspection and planning over file changes or shell commands.'
+          : 'You are permitted to make file changes, run shell commands, and use the available tools as needed.',
+        '</system-reminder>'
+      ].join('\n')
+    });
+  }
+
   if (input.lastUserRuntime?.userSystem) {
     blocks.push({
       source: 'user_system',

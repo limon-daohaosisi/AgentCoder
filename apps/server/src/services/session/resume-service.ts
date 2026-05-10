@@ -15,17 +15,23 @@ import { toolCallRepository } from '../../repositories/tool-call-repository.js';
 import { messagePartService } from './message/part-service.js';
 
 function buildResumeFailure(session: SessionDto): ResumeSessionDto {
+  const pendingApprovals = approvalRepository.listPendingBySession(session.id);
+
   return {
     canResume: false,
     checkpoint: session.lastCheckpointJson,
+    pendingApprovals,
     session
   };
 }
 
 function buildResumeSuccess(session: SessionDto): ResumeSessionDto {
+  const pendingApprovals = approvalRepository.listPendingBySession(session.id);
+
   return {
     canResume: true,
     checkpoint: session.lastCheckpointJson,
+    pendingApprovals,
     session
   };
 }

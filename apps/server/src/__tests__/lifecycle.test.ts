@@ -1,4 +1,5 @@
 import { Lifecycle, ToolExecutor } from '@opencode/agent';
+import type { MessagePart } from '@opencode/shared';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
@@ -40,7 +41,7 @@ function createSession() {
 function createApprovalFixture(input: {
   decision?: 'approved' | 'rejected';
   sessionId: string;
-  toolName: 'run_command' | 'write_file';
+  toolName: 'bash' | 'write';
   toolInput: Record<string, unknown>;
 }) {
   const now = '2026-04-27T00:00:00.000Z';
@@ -214,7 +215,7 @@ test('Lifecycle owns paused approval run/session state and resumable event', asy
         status: 'pending'
       },
       toolCallId: 'tool-call-pause-test',
-      toolName: 'run_command',
+      toolName: 'bash',
       type: 'tool',
       updatedAt: '2026-04-29T14:00:00.000Z'
     },
@@ -230,7 +231,7 @@ test('Lifecycle owns paused approval run/session state and resumable event', asy
       sessionId: session.id,
       status: 'pending_approval',
       taskId: null,
-      toolName: 'run_command',
+      toolName: 'bash',
       updatedAt: '2026-04-29T14:00:00.000Z'
     }
   });
@@ -241,7 +242,7 @@ test('Lifecycle owns paused approval run/session state and resumable event', asy
     decidedBy: undefined,
     decisionScope: 'once',
     id: 'approval-pause-test',
-    kind: 'run_command',
+    kind: 'bash',
     payload: { command: 'pwd' },
     runId: run.id,
     sessionId: session.id,
@@ -299,9 +300,9 @@ test('Lifecycle resolves rejected approval into ToolPart error and resumes loop'
     sessionId: session.id,
     toolInput: {
       content: 'export const ok = false;\n',
-      path: 'src/index.ts'
+      filePath: 'src/index.ts'
     },
-    toolName: 'write_file'
+    toolName: 'write'
   });
   let runCalled = false;
   const lifecycle = new Lifecycle(
@@ -345,7 +346,7 @@ test('Lifecycle continues when approved tool execution writes an error result', 
   const { approval, part, run, toolCall } = createApprovalFixture({
     sessionId: session.id,
     toolInput: { command: 'definitely-missing-command-for-test' },
-    toolName: 'run_command'
+    toolName: 'bash'
   });
   let runCalled = false;
   const failingToolExecutor = new ToolExecutor({
@@ -387,4 +388,51 @@ test('Lifecycle continues when approved tool execution writes an error result', 
       : undefined,
     'tool_error'
   );
+});
+
+test('Lifecycle passes approval payload into approved tool execution', async () => {
+  const session = createSession();
+  const { approval, part, run } = createApprovalFixture({
+    sessionId: session.id,
+    toolInput: {
+      patchText: '*** Begin Patch\n*** End Patch'
+    },
+    toolName: 'bash'
+  });
+  approval.payload = { approved: true, token: 'payload-check' };
+  let receivedPayload: Record<string, unknown> | undefined;
+  let runCalled = false;
+  const toolPart = part as Extract<MessagePart, { type: 'tool' }>;
+
+  const lifecycle = new Lifecycle(
+    {
+      async run() {
+        runCalled = true;
+        return { finishReason: 'stop', kind: 'completed' };
+      }
+    },
+    buildLifecycleDeps({
+      toolExecutor: {
+        async executeApprovedPart(
+          input: Parameters<ToolExecutor['executeApprovedPart']>[0]
+        ) {
+          receivedPayload = input.approvalPayload;
+          return toolPart;
+        }
+      } as never
+    })
+  );
+
+  const result = await lifecycle.resumeApprovalRun({
+    approval,
+    decision: 'approved',
+    part: toolPart,
+    runId: run.id,
+    signal: createRunSignal(),
+    toolCall: toolCallRepository.getById(toolPart.toolCallId)!
+  });
+
+  assert.deepEqual(result, { reason: 'completed' });
+  assert.equal(runCalled, true);
+  assert.deepEqual(receivedPayload, approval.payload);
 });

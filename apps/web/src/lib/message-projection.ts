@@ -60,6 +60,57 @@ function upsertMessage(
   return updated;
 }
 
+function mergeMessage(
+  currentMessage: ProjectedMessage,
+  incomingMessage: ProjectedMessage,
+  marker: EventMarker
+) {
+  const incomingParts = new Map(
+    incomingMessage.content.map((part) => [part.id, part] as const)
+  );
+  const currentParts = new Map(
+    currentMessage.content.map((part) => [part.id, part] as const)
+  );
+  const mergedContent = currentMessage.content.map((currentPart) => {
+    const incomingPart = incomingParts.get(currentPart.id);
+
+    if (!incomingPart) {
+      return currentPart;
+    }
+
+    const currentPartMarker = currentMessage.__partEventMarks?.[
+      currentPart.id
+    ] ?? {
+      createdAt: currentPart.updatedAt,
+      sequenceNo: 0
+    };
+
+    return compareMarkers(currentPartMarker, marker) > 0
+      ? currentPart
+      : incomingPart;
+  });
+
+  for (const incomingPart of incomingMessage.content) {
+    if (!currentParts.has(incomingPart.id)) {
+      mergedContent.push(incomingPart);
+    }
+  }
+
+  return {
+    ...currentMessage,
+    ...incomingMessage,
+    content: mergedContent.sort((left, right) =>
+      left.order === right.order
+        ? left.id.localeCompare(right.id)
+        : left.order - right.order
+    ),
+    __partEventMarks: {
+      ...(currentMessage.__partEventMarks ?? {}),
+      ...(incomingMessage.__partEventMarks ?? {})
+    }
+  } satisfies ProjectedMessage;
+}
+
 function sortMessages(messages: ProjectedMessage[]) {
   return [...messages].sort((left, right) => {
     if (left.createdAt === right.createdAt) {
@@ -96,12 +147,25 @@ function projectEvent(
 
   switch (envelope.event.type) {
     case 'message.created':
-      return upsertMessage(messages, {
-        ...envelope.event.message,
-        __partEventMarks: Object.fromEntries(
-          envelope.event.message.content.map((part) => [part.id, marker])
-        )
-      });
+      return upsertMessage(
+        messages,
+        (() => {
+          const event = envelope.event;
+          const nextMessage = {
+            ...event.message,
+            __partEventMarks: Object.fromEntries(
+              event.message.content.map((part) => [part.id, marker])
+            )
+          } satisfies ProjectedMessage;
+          const existing = messages.find(
+            (message) => message.id === event.message.id
+          );
+
+          return existing
+            ? mergeMessage(existing, nextMessage, marker)
+            : nextMessage;
+        })()
+      );
     case 'message.part.created': {
       const event = envelope.event;
       const existing = messages.find(
@@ -117,9 +181,29 @@ function projectEvent(
       );
 
       if (alreadyExists) {
+        const currentPart = existing.content.find(
+          (part) => part.id === event.part.id
+        );
+        const currentPartMarker =
+          existing.__partEventMarks?.[event.part.id] ??
+          (currentPart
+            ? { createdAt: currentPart.updatedAt, sequenceNo: 0 }
+            : undefined);
+
+        if (
+          currentPartMarker &&
+          compareMarkers(currentPartMarker, marker) > 0
+        ) {
+          return messages;
+        }
+
         return upsertMessage(
           messages,
-          markPartEvent(existing, event.part.id, marker)
+          markPartEvent(
+            updatePartById(existing, event.part.id, () => event.part),
+            event.part.id,
+            marker
+          )
         );
       }
 

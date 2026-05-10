@@ -1,4 +1,5 @@
 import type { MessageDto, MessagePart, SessionDto } from '@opencode/shared';
+import { DEFAULT_TOOL_OUTPUT_POLICY, toolByName } from '../tools/index.js';
 import { buildSystemContext } from './system-context.js';
 import type {
   BuiltContext,
@@ -78,9 +79,10 @@ function toCompletedToolContext(
 
   return {
     attachments: part.state.attachments,
-    exposePayload: part.state.metadata?.exposePayload === true,
     input: part.state.input,
     modelToolCallId: part.modelToolCallId,
+    outputPolicy:
+      toolByName[part.toolName]?.outputPolicy ?? DEFAULT_TOOL_OUTPUT_POLICY,
     outputText: part.state.outputText,
     payload: part.state.payload,
     sourcePartId: part.id,
@@ -102,6 +104,8 @@ function toErrorToolContext(
     errorText: part.state.errorText,
     input: part.state.input,
     modelToolCallId: part.modelToolCallId,
+    outputPolicy:
+      toolByName[part.toolName]?.outputPolicy ?? DEFAULT_TOOL_OUTPUT_POLICY,
     sourcePartId: part.id,
     toolCallId: part.toolCallId,
     toolName: part.toolName,

@@ -4,14 +4,19 @@ import {
   type ModelResponseStream,
   type StreamModelResponse
 } from '@opencode/agent';
+import { createHash } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
+import { toolCallRepository } from '../repositories/tool-call-repository.js';
 import { buildSessionProcessorDeps } from '../wiring/agent.js';
 
 const {
   agentRunService,
   environment,
+  fileSnapshotService,
   messageService,
   sessionEventService,
   sessionService,
@@ -237,9 +242,9 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
         createFakeStream({
           events: [
             {
-              input: { path: 'src/index.ts' },
+              input: { filePath: 'src/index.ts' },
               toolCallId: 'model-call-read',
-              toolName: 'read_file',
+              toolName: 'read',
               type: 'tool-call'
             },
             {
@@ -266,10 +271,10 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
     createProcessTurnInput({
       request: createRequest({
         toolPolicies: {
-          read_file: {
+          read: {
             approval: 'never',
             enabled: true,
-            name: 'read_file',
+            name: 'read',
             source: 'builtin'
           }
         }
@@ -305,6 +310,39 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
 test('SessionProcessor pauses for approval-required tools and stores part checkpoint', async () => {
   const session = createSession();
   const run = agentRunService.createRun({ sessionId: session.id });
+  const filePath = path.join(environment.workspaceRoot, 'src', 'index.ts');
+  const content = await readFile(filePath, 'utf8');
+  const fileStat = await stat(filePath);
+  toolCallRepository.create({
+    createdAt: '2026-04-27T00:00:00.000Z',
+    id: 'snapshot-tool-call',
+    input: { filePath: 'src/index.ts' },
+    messageId: null,
+    messagePartId: null,
+    modelToolCallId: null,
+    requiresApproval: false,
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed',
+    taskId: null,
+    toolName: 'read',
+    updatedAt: '2026-04-27T00:00:00.000Z'
+  });
+  await fileSnapshotService.createFromRead({
+    sessionId: session.id,
+    snapshot: {
+      fullRead: true,
+      lineCount: 1,
+      mtimeMs: fileStat.mtimeMs,
+      path: 'src/index.ts',
+      readAt: '2026-04-27T00:00:00.000Z',
+      sha256: createHash('sha256').update(content).digest('hex'),
+      size: fileStat.size,
+      truncated: false,
+      version: 1
+    },
+    toolCallId: 'snapshot-tool-call'
+  });
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
       streamModelResponse: (() =>
@@ -313,10 +351,10 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
             {
               input: {
                 content: 'export const ok = false;\n',
-                path: 'src/index.ts'
+                filePath: 'src/index.ts'
               },
               toolCallId: 'model-call-write',
-              toolName: 'write_file',
+              toolName: 'write',
               type: 'tool-call'
             },
             {
@@ -343,10 +381,10 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
     createProcessTurnInput({
       request: createRequest({
         toolPolicies: {
-          write_file: {
+          write: {
             approval: 'required',
             enabled: true,
-            name: 'write_file',
+            name: 'write',
             source: 'builtin'
           }
         }
@@ -362,7 +400,7 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
   assert.ok(result.checkpoint.partId);
   assert.equal(result.checkpoint.modelToolCallId, 'model-call-write');
   assert.ok(result.checkpoint.toolCallId);
-  assert.equal(result.approval.kind, 'write_file');
+  assert.equal(result.approval.kind, 'write');
   assert.equal(result.approval.status, 'pending');
   assert.equal(result.toolCall.id, result.checkpoint.toolCallId);
   assert.equal(sessionService.getSession(session.id)?.status, 'planning');
@@ -371,6 +409,107 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
     ['message.created', 'message.part.created', 'message.completed']
+  );
+});
+
+test('SessionProcessor converts approval payload generation failures into tool errors', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      prepareToolExecution: async () => {
+        throw new Error(
+          'File changed since it was last read. Read it again before modifying it.'
+        );
+      },
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                content: 'hello\n',
+                filePath: 'src/index.ts'
+              },
+              toolCallId: 'model-call-write-stale',
+              toolName: 'write',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-stale-approval',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          write: {
+            approval: 'required',
+            enabled: true,
+            name: 'write',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+  assert.deepEqual(result.toolParts, []);
+
+  const [message] = messageService.listMessages(session.id);
+  const toolPart = message?.content.find((part) => part.type === 'tool');
+
+  assert.equal(toolPart?.type, 'tool');
+  assert.equal(
+    toolPart?.type === 'tool' ? toolPart.state.status : undefined,
+    'error'
+  );
+  assert.equal(
+    toolPart?.type === 'tool' && toolPart.state.status === 'error'
+      ? toolPart.state.errorText
+      : undefined,
+    'File changed since it was last read. Read it again before modifying it.'
+  );
+
+  const persistedToolCall =
+    toolPart?.type === 'tool'
+      ? toolCallRepository.getById(toolPart.toolCallId)
+      : null;
+
+  assert.equal(persistedToolCall?.status, 'failed');
+  assert.equal(
+    persistedToolCall?.errorText,
+    'File changed since it was last read. Read it again before modifying it.'
+  );
+  assert.deepEqual(
+    sessionEventService
+      .listAfterSequence(session.id, 0)
+      .map((envelope) => envelope.event.type),
+    [
+      'message.created',
+      'message.part.created',
+      'message.completed',
+      'message.part.updated',
+      'tool.failed'
+    ]
   );
 });
 
@@ -385,16 +524,16 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
             {
               input: {
                 content: 'export const first = true;\n',
-                path: 'src/first.ts'
+                filePath: 'src/first.ts'
               },
               toolCallId: 'model-call-write-1',
-              toolName: 'write_file',
+              toolName: 'write',
               type: 'tool-call'
             },
             {
               input: { command: 'pwd' },
               toolCallId: 'model-call-command-1',
-              toolName: 'run_command',
+              toolName: 'bash',
               type: 'tool-call'
             },
             {
@@ -421,16 +560,16 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
     createProcessTurnInput({
       request: createRequest({
         toolPolicies: {
-          run_command: {
+          bash: {
             approval: 'required',
             enabled: true,
-            name: 'run_command',
+            name: 'bash',
             source: 'builtin'
           },
-          write_file: {
+          write: {
             approval: 'required',
             enabled: true,
-            name: 'write_file',
+            name: 'write',
             source: 'builtin'
           }
         }

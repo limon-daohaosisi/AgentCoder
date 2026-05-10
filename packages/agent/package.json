@@ -9,6 +9,8 @@
     "@opencode/orm": "workspace:*",
     "@opencode/shared": "workspace:*",
     "ai": "^6.0.168",
+    "diff": "^8.0.2",
+    "picomatch": "^4.0.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -1,7 +1,18 @@
-export type ToolName = 'read_file' | 'write_file' | 'run_command';
-
-export type ToolDefinition = {
-  description: string;
-  inputSchema: Record<string, unknown>;
-  name: ToolName;
-};
+export type {
+  AnyToolDefinition,
+  ApprovalToolName,
+  ToolAttachmentPolicy,
+  ToolApproval,
+  ToolDefinition,
+  ToolErrorPolicy,
+  ToolErrorVisibility,
+  ToolExecutionContext,
+  ToolJsonFieldSpec,
+  ToolOutputPolicy,
+  ToolOutputVisibility,
+  ToolPresentation,
+  ToolTextPolicy,
+  ToolServices
+} from './core.js';
+export { DEFAULT_TOOL_OUTPUT_POLICY } from './core.js';
+export type { ToolName } from '@opencode/shared';

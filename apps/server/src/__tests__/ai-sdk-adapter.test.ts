@@ -1,8 +1,12 @@
 import {
   ContextBuilder,
+  bashInputSchema,
+  DEFAULT_TOOL_OUTPUT_POLICY,
+  readInputSchema,
   toAiSdkMessages,
   toAiSdkToolSet,
   toToolPolicies,
+  type ContextPart,
   type ResolvedTool
 } from '@opencode/agent';
 import assert from 'node:assert/strict';
@@ -52,14 +56,17 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
     sessionId: session.id,
     state: {
       completedAt: '2026-04-27T00:00:01.000Z',
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       outputText: 'export const ok = true;\n',
-      payload: { content: 'export const ok = true;\n', path: 'src/index.ts' },
+      payload: {
+        content: 'export const ok = true;\n',
+        filePath: 'src/index.ts'
+      },
       startedAt: '2026-04-27T00:00:00.000Z',
       status: 'completed'
     },
     toolCallId: 'tool-call-1',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
 
@@ -83,9 +90,9 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
       content: [
         { text: 'I will inspect the file.', type: 'text' },
         {
-          input: { path: 'src/index.ts' },
+          input: { filePath: 'src/index.ts' },
           toolCallId: 'model-call-1',
-          toolName: 'read_file',
+          toolName: 'read',
           type: 'tool-call'
         }
       ],
@@ -94,9 +101,15 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
     {
       content: [
         {
-          output: { type: 'text', value: 'export const ok = true;\n' },
+          output: {
+            type: 'json',
+            value: {
+              content: 'export const ok = true;\n',
+              filePath: 'src/index.ts'
+            }
+          },
           toolCallId: 'model-call-1',
-          toolName: 'read_file',
+          toolName: 'read',
           type: 'tool-result'
         }
       ],
@@ -111,19 +124,16 @@ test('Tool adapter exposes manual AI SDK tools and separate approval policies', 
       approval: 'never',
       description: 'Read a file',
       enabled: true,
-      inputSchema: { properties: { path: { type: 'string' } }, type: 'object' },
-      name: 'read_file',
+      inputSchema: readInputSchema,
+      name: 'read',
       source: 'builtin'
     },
     {
       approval: 'required',
       description: 'Run a command',
       enabled: true,
-      inputSchema: {
-        properties: { command: { type: 'string' } },
-        type: 'object'
-      },
-      name: 'run_command',
+      inputSchema: bashInputSchema,
+      name: 'bash',
       source: 'builtin'
     }
   ];
@@ -133,13 +143,13 @@ test('Tool adapter exposes manual AI SDK tools and separate approval policies', 
   });
   const policies = toToolPolicies(resolvedTools);
 
-  assert.ok(toolSet.read_file);
-  assert.equal(typeof toolSet.read_file, 'object');
-  assert.equal('execute' in toolSet.read_file, false);
-  assert.equal(policies.run_command?.approval, 'required');
+  assert.ok(toolSet.read);
+  assert.equal(typeof toolSet.read, 'object');
+  assert.equal('execute' in toolSet.read, false);
+  assert.equal(policies.bash?.approval, 'required');
 });
 
-test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () => {
+test('AI SDK adapter applies tool-level json field visibility for builtin read', () => {
   const session = createSession();
 
   messageService.createMessage({
@@ -160,38 +170,24 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
     sessionId: session.id,
     state: {
       completedAt: '2026-04-27T00:00:01.000Z',
-      input: { path: 'src/index.ts' },
-      metadata: { exposePayload: true },
+      input: { filePath: 'src/index.ts' },
       outputText: 'Visible fallback text',
-      payload: { lineCount: 12, path: 'src/index.ts' },
+      payload: {
+        absolutePath: '/secret/workspace/src/index.ts',
+        content: 'export const ok = true;\n',
+        filePath: 'src/index.ts',
+        fullRead: true,
+        limit: 2000,
+        offset: 1,
+        totalLines: 12,
+        truncated: false,
+        type: 'file'
+      },
       startedAt: '2026-04-27T00:00:00.000Z',
       status: 'completed'
     },
     toolCallId: 'tool-call-json',
-    toolName: 'read_file',
-    type: 'tool'
-  });
-  partService.appendPart({
-    messageId: assistant.id,
-    modelToolCallId: 'model-call-file',
-    order: 1,
-    sessionId: session.id,
-    state: {
-      attachments: [
-        {
-          filename: 'result.txt',
-          mime: 'text/plain',
-          url: 'file:///tmp/result.txt'
-        }
-      ],
-      completedAt: '2026-04-27T00:00:03.000Z',
-      input: { path: 'result.txt' },
-      outputText: 'See attached result.',
-      startedAt: '2026-04-27T00:00:02.000Z',
-      status: 'completed'
-    },
-    toolCallId: 'tool-call-file',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
 
@@ -214,12 +210,86 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
       {
         output: {
           type: 'json',
-          value: { lineCount: 12, path: 'src/index.ts' }
+          value: {
+            content: 'export const ok = true;\n',
+            filePath: 'src/index.ts',
+            fullRead: true,
+            limit: 2000,
+            offset: 1,
+            totalLines: 12,
+            truncated: false,
+            type: 'file'
+          }
         },
         toolCallId: 'model-call-json',
-        toolName: 'read_file',
+        toolName: 'read',
         type: 'tool-result'
+      }
+    ]
+  );
+});
+
+test('AI SDK adapter exposes attachments only when output policy allows them', () => {
+  const messages = toAiSdkMessages({
+    debug: { skippedParts: [] },
+    estimate: { chars: 0, tokens: 0 },
+    lastUser: {
+      agentName: 'opencode',
+      messageId: 'user-1',
+      model: { modelId: 'gpt-4.1-mini', providerId: 'openai' }
+    },
+    messages: [
+      {
+        parts: [
+          { sourcePartId: 'user-part-1', text: 'Inspect result', type: 'text' }
+        ],
+        role: 'user',
+        sourceMessageId: 'user-1'
       },
+      {
+        parts: [
+          {
+            attachments: [
+              {
+                filename: 'result.txt',
+                mime: 'text/plain',
+                url: 'file:///tmp/result.txt'
+              },
+              {
+                filename: 'secret.bin',
+                mime: 'application/octet-stream',
+                url: 'file:///tmp/secret.bin'
+              }
+            ],
+            input: { filePath: 'result.txt' },
+            modelToolCallId: 'model-call-file',
+            outputPolicy: {
+              attachments: {
+                allowedMimePrefixes: ['text/'],
+                maxAttachments: 1,
+                visibleToModel: true
+              },
+              errors: { visibleToModel: 'error_text_only' },
+              mode: 'content',
+              text: { maxChars: 1000, visibleToModel: true }
+            },
+            outputText: 'See attached result.',
+            payload: { hidden: true },
+            sourcePartId: 'tool-part-file',
+            toolCallId: 'tool-call-file',
+            toolName: 'read',
+            type: 'tool'
+          } satisfies Extract<ContextPart, { type: 'tool' }>
+        ],
+        role: 'assistant',
+        sourceMessageId: 'assistant-1'
+      }
+    ],
+    system: []
+  });
+
+  assert.deepEqual(messages.at(-1), {
+    content: [
       {
         output: {
           type: 'content',
@@ -233,11 +303,12 @@ test('AI SDK adapter maps exposed tool payloads and attachments explicitly', () 
           ]
         },
         toolCallId: 'model-call-file',
-        toolName: 'read_file',
+        toolName: 'read',
         type: 'tool-result'
       }
-    ]
-  );
+    ],
+    role: 'tool'
+  });
 });
 
 test('ContextBuilder repairs dangling tools outside active approval waits', () => {
@@ -263,11 +334,11 @@ test('ContextBuilder repairs dangling tools outside active approval waits', () =
     order: 0,
     sessionId: session.id,
     state: {
-      input: { path: 'src/index.ts' },
+      input: { filePath: 'src/index.ts' },
       status: 'pending'
     },
     toolCallId: 'tool-call-dangling',
-    toolName: 'read_file',
+    toolName: 'read',
     type: 'tool'
   });
 
@@ -298,4 +369,158 @@ test('ContextBuilder repairs dangling tools outside active approval waits', () =
     ),
     true
   );
+});
+
+test('AI SDK adapter rebuilds failed approved tool results as error-text tool messages', () => {
+  const session = createSession();
+
+  messageService.createMessage({
+    content: [{ text: 'Edit src/index.ts', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    sessionId: session.id
+  });
+
+  partService.appendPart({
+    messageId: assistant.id,
+    modelToolCallId: 'model-call-edit-failed',
+    order: 0,
+    sessionId: session.id,
+    state: {
+      completedAt: '2026-04-27T00:00:01.000Z',
+      errorText:
+        'File changed since it was last read. Read it again before modifying it.',
+      input: {
+        filePath: 'src/index.ts',
+        newString: 'hello',
+        oldString: 'updated',
+        replaceAll: false
+      },
+      payload: {
+        error:
+          'File changed since it was last read. Read it again before modifying it.',
+        ok: false
+      },
+      reason: 'tool_error',
+      startedAt: '2026-04-27T00:00:00.000Z',
+      status: 'error'
+    },
+    toolCallId: 'tool-call-edit-failed',
+    toolName: 'edit',
+    type: 'tool'
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId)
+  });
+  const messages = toAiSdkMessages(
+    builder.build({
+      sessionId: session.id,
+      workspaceRoot: environment.workspaceRoot
+    })
+  );
+
+  assert.deepEqual(messages, [
+    {
+      content: [{ text: 'Edit src/index.ts', type: 'text' }],
+      role: 'user'
+    },
+    {
+      content: [
+        {
+          input: {
+            filePath: 'src/index.ts',
+            newString: 'hello',
+            oldString: 'updated',
+            replaceAll: false
+          },
+          toolCallId: 'model-call-edit-failed',
+          toolName: 'edit',
+          type: 'tool-call'
+        }
+      ],
+      role: 'assistant'
+    },
+    {
+      content: [
+        {
+          output: {
+            type: 'error-text',
+            value:
+              'File changed since it was last read. Read it again before modifying it.'
+          },
+          toolCallId: 'model-call-edit-failed',
+          toolName: 'edit',
+          type: 'tool-result'
+        }
+      ],
+      role: 'tool'
+    }
+  ]);
+});
+
+test('AI SDK adapter preserves execution-denied output when policy requests it', () => {
+  const messages = toAiSdkMessages({
+    debug: { skippedParts: [] },
+    estimate: { chars: 0, tokens: 0 },
+    lastUser: {
+      agentName: 'opencode',
+      messageId: 'user-2',
+      model: { modelId: 'gpt-4.1-mini', providerId: 'openai' }
+    },
+    messages: [
+      {
+        parts: [
+          {
+            sourcePartId: 'user-part-2',
+            text: 'Run restricted tool',
+            type: 'text'
+          }
+        ],
+        role: 'user',
+        sourceMessageId: 'user-2'
+      },
+      {
+        parts: [
+          {
+            errorReason: 'execution_denied',
+            errorText: 'Approval rejected by user',
+            input: { command: 'rm -rf tmp' },
+            modelToolCallId: 'model-call-denied',
+            outputPolicy: {
+              ...DEFAULT_TOOL_OUTPUT_POLICY,
+              errors: { visibleToModel: 'execution_denied_only' }
+            },
+            sourcePartId: 'tool-part-denied',
+            toolCallId: 'tool-call-denied',
+            toolName: 'bash',
+            type: 'tool'
+          } satisfies Extract<ContextPart, { type: 'tool' }>
+        ],
+        role: 'assistant',
+        sourceMessageId: 'assistant-2'
+      }
+    ],
+    system: []
+  });
+
+  assert.deepEqual(messages.at(-1), {
+    content: [
+      {
+        output: {
+          reason: 'Approval rejected by user',
+          type: 'execution-denied'
+        },
+        toolCallId: 'model-call-denied',
+        toolName: 'bash',
+        type: 'tool-result'
+      }
+    ],
+    role: 'tool'
+  });
 });

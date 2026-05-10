@@ -30,7 +30,16 @@ export type {
   SessionProcessorDeps
 } from './session-processor.js';
 export { ToolExecutor } from './tool-executor.js';
-export type { ToolExecutorDeps, ToolExecutorResult } from './tool-executor.js';
+export {
+  executeApprovedTool,
+  prepareToolExecution,
+  toolRequiresApproval
+} from './tool-executor.js';
+export type {
+  ToolExecutorDeps,
+  ToolExecutorResult,
+  ToolPreparationResult
+} from './tool-executor.js';
 export {
   ContextBuilder,
   filterCompacted,
@@ -47,5 +56,42 @@ export {
 export { ContextSizeGuard } from './context/size-guard.js';
 export { resolveTools } from './context/tool-registry.js';
 export type * from './context/schema.js';
-export { readFileTool } from './tools/index.js';
-export { runCommandTool } from './tools/index.js';
+export {
+  applyPatchInputSchema,
+  applyPatchToolDefinition,
+  bashInputSchema,
+  bashToolDefinition,
+  buildToolExecutionContext,
+  DEFAULT_TOOL_OUTPUT_POLICY,
+  editInputSchema,
+  editToolDefinition,
+  globInputSchema,
+  globToolDefinition,
+  grepInputSchema,
+  grepToolDefinition,
+  readInputSchema,
+  readToolDefinition,
+  toolByName,
+  toolRegistry,
+  writeInputSchema,
+  writeToolDefinition
+} from './tools/index.js';
+export type {
+  FileSnapshotArtifact,
+  FileSnapshotStore,
+  FileSnapshotStoreLookup,
+  AnyToolDefinition,
+  ApprovalToolName,
+  ToolAttachmentPolicy,
+  ToolDefinition,
+  ToolErrorPolicy,
+  ToolErrorVisibility,
+  ToolExecutionContext,
+  ToolJsonFieldSpec,
+  ToolName,
+  ToolOutputPolicy,
+  ToolOutputVisibility,
+  ToolPresentation,
+  ToolTextPolicy,
+  ToolServices
+} from './tools/index.js';

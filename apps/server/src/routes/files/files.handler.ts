@@ -1,4 +1,4 @@
-import { readFileTool } from '@opencode/agent';
+import { buildToolExecutionContext, readToolDefinition } from '@opencode/agent';
 import { appFactory } from '../../lib/factory.js';
 import { createValidator } from '../../lib/validator.js';
 import { FilesSchemas } from './files.schema.js';
@@ -7,7 +7,14 @@ export const content = appFactory.createHandlers(
   createValidator.query(FilesSchemas.content.query),
   async (c) => {
     const { path, workspaceRoot } = c.req.valid('query');
-    const data = await readFileTool({ path }, workspaceRoot ?? process.cwd());
+    const data = await readToolDefinition.execute({
+      context: buildToolExecutionContext({
+        sessionId: 'route-preview',
+        toolCallId: 'route-preview',
+        workspaceRoot: workspaceRoot ?? process.cwd()
+      }),
+      input: { filePath: path }
+    });
 
     return c.json({ data });
   }
