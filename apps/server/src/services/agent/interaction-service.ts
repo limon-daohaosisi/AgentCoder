@@ -5,11 +5,21 @@ import type {
   ToolCallDto
 } from '@opencode/shared';
 import { Database } from '../../db/runtime.js';
-import { normalizePrompt, type Lifecycle } from '@opencode/agent';
+import {
+  normalizePrompt,
+  ContextBuilder,
+  type Lifecycle,
+  type SessionCompaction
+} from '@opencode/agent';
 import { approvalRepository } from '../../repositories/approval-repository.js';
 import { toolCallRepository } from '../../repositories/tool-call-repository.js';
+import { workspaceRepository } from '../../repositories/workspace-repository.js';
 import { ServiceError } from '../../lib/service-error.js';
-import { lifecycle } from '../../wiring/agent.js';
+import {
+  buildRunLoopDeps,
+  lifecycle,
+  sessionCompaction
+} from '../../wiring/agent.js';
 import { messageService } from '../session/message/service.js';
 import type { SessionRunner } from './runner.js';
 import { sessionRunner } from './runner.js';
@@ -37,10 +47,17 @@ type SubmitUserMessageInput = {
   sessionId: string;
 };
 
+type ManualCompactInput = {
+  sessionId: string;
+};
+
 export class SessionInteractionService {
+  private readonly contextBuilder = new ContextBuilder(buildRunLoopDeps());
+
   constructor(
     private readonly runner: SessionRunner = sessionRunner,
-    private readonly runtimeLifecycle: Lifecycle = lifecycle
+    private readonly runtimeLifecycle: Lifecycle = lifecycle,
+    private readonly runtimeCompaction: SessionCompaction = sessionCompaction
   ) {}
 
   async prompt(
@@ -127,6 +144,131 @@ export class SessionInteractionService {
     );
 
     return response;
+  }
+
+  async manualCompact(input: ManualCompactInput) {
+    const session = sessionService.getSession(input.sessionId);
+
+    if (!session) {
+      throw new ServiceError(`Session not found: ${input.sessionId}`, 404);
+    }
+
+    if (
+      session.status === 'executing' ||
+      session.status === 'waiting_approval'
+    ) {
+      throw new ServiceError(
+        'Session cannot be manually compacted while a run is active.',
+        409
+      );
+    }
+
+    const workspaceRoot = this.resolveWorkspaceRoot(input.sessionId);
+
+    return this.runner.runExclusive(
+      input.sessionId,
+      async () => {
+        const run = Database.transaction(() => {
+          const createdRun = agentRunService.createRun({
+            sessionId: input.sessionId
+          });
+          const updatedSession = sessionService.updateSessionRuntimeState({
+            lastErrorText: null,
+            sessionId: input.sessionId,
+            status: 'executing'
+          });
+
+          sessionEventService.append({
+            run: createdRun,
+            sessionId: input.sessionId,
+            type: 'run.created'
+          });
+
+          if (updatedSession) {
+            sessionEventService.append({
+              runId: createdRun.id,
+              sessionId: updatedSession.id,
+              type: 'session.updated',
+              updatedAt: updatedSession.updatedAt
+            });
+          }
+
+          return createdRun;
+        });
+
+        return {
+          ctx: { run, workspaceRoot },
+          runId: run.id
+        };
+      },
+      async (ctx, signal) => {
+        try {
+          const context = this.contextBuilder.build({
+            sessionId: input.sessionId,
+            workspaceRoot: ctx.workspaceRoot
+          });
+          const result = await this.runtimeCompaction.runManualCompaction({
+            context,
+            runId: ctx.run.id,
+            sessionId: input.sessionId,
+            signal,
+            workspaceRoot: ctx.workspaceRoot
+          });
+
+          if (result.kind === 'failed') {
+            agentRunService.finalizeRunState({
+              errorText: result.error,
+              reason: 'failed',
+              runId: ctx.run.id,
+              sessionId: input.sessionId,
+              sessionStatus: 'idle'
+            });
+            throw new ServiceError(result.error, 500);
+          }
+
+          if (result.kind === 'blocked') {
+            agentRunService.finalizeRunState({
+              errorText: result.error,
+              reason: 'blocked',
+              runId: ctx.run.id,
+              sessionId: input.sessionId,
+              sessionStatus: 'blocked'
+            });
+            throw new ServiceError(result.error, 409);
+          }
+
+          agentRunService.finalizeRunState({
+            reason: 'completed',
+            runId: ctx.run.id,
+            sessionId: input.sessionId,
+            sessionStatus: 'idle'
+          });
+
+          return {
+            compacted: true as const,
+            postContextMessageId: result.postContextMessageId,
+            requestMessageId: result.requestMessageId,
+            run: agentRunService.getRun(ctx.run.id) ?? ctx.run,
+            summaryMessageId: result.summaryMessageId
+          };
+        } catch (error) {
+          if (!(error instanceof ServiceError)) {
+            agentRunService.finalizeRunState({
+              errorText:
+                error instanceof Error
+                  ? error.message
+                  : 'Manual compact failed.',
+              reason: 'failed',
+              runId: ctx.run.id,
+              sessionId: input.sessionId,
+              sessionStatus: 'idle'
+            });
+          }
+
+          throw error;
+        }
+      }
+    );
   }
 
   async resolveApproval(input: {
@@ -293,6 +435,25 @@ export class SessionInteractionService {
     );
 
     return response;
+  }
+
+  private resolveWorkspaceRoot(sessionId: string) {
+    const session = sessionService.getSession(sessionId);
+
+    if (!session) {
+      throw new ServiceError(`Session not found: ${sessionId}`, 404);
+    }
+
+    const workspace = workspaceRepository.getById(session.workspaceId);
+
+    if (!workspace) {
+      throw new ServiceError(
+        `Workspace not found for session ${sessionId}`,
+        404
+      );
+    }
+
+    return workspace.rootPath;
   }
 }
 

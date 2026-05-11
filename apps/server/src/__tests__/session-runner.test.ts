@@ -104,3 +104,39 @@ test('SessionRunner cancel aborts the active run signal', async () => {
   await waitForBackgroundTurn();
   assert.equal(runner.busy('session-3'), false);
 });
+
+test('SessionRunner runExclusive holds the lock for awaited work', async () => {
+  const runner = new SessionRunner();
+  let releaseRun: () => void;
+  const runFinished = new Promise<void>((resolve) => {
+    releaseRun = resolve;
+  });
+
+  const running = runner.runExclusive(
+    'session-4',
+    async () => ({ ctx: 'ctx', runId: 'run-4' }),
+    async (ctx, signal) => {
+      assert.equal(ctx, 'ctx');
+      assert.equal(signal.aborted, false);
+      await runFinished;
+      return 'done';
+    }
+  );
+
+  await waitForBackgroundTurn();
+
+  assert.equal(runner.busy('session-4'), true);
+  await assert.rejects(
+    () =>
+      runner.runExclusive(
+        'session-4',
+        async () => ({ ctx: 'other', runId: 'run-other' }),
+        async () => 'nope'
+      ),
+    /Session already has an active run/iu
+  );
+
+  releaseRun!();
+  assert.equal(await running, 'done');
+  assert.equal(runner.busy('session-4'), false);
+});

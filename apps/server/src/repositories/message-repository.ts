@@ -7,7 +7,7 @@ import type {
   MessageStatus,
   TokenUsageDto
 } from '@opencode/shared';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { Database } from '../db/runtime.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
@@ -218,5 +218,21 @@ export const messageRepository = {
     );
 
     return row ? mapMessageRow(row) : null;
+  },
+
+  markCompacted(input: { compactedByMessageId: string; messageIds: string[] }) {
+    if (input.messageIds.length === 0) {
+      return [] as MessageDto[];
+    }
+
+    return Database.use((db) =>
+      db
+        .update(messages)
+        .set({ compactedByMessageId: input.compactedByMessageId })
+        .where(inArray(messages.id, input.messageIds))
+        .returning()
+        .all()
+        .map(mapMessageRow)
+    );
   }
 };

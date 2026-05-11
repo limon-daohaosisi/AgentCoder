@@ -22,8 +22,40 @@ export type ContextBuilderInput = {
   workspaceRoot: string;
 };
 
+function isCompactionRequestMessage(message: MessageWithParts) {
+  return message.content.some((part) => part.type === 'compaction');
+}
+
+function isCompactionSummaryMessage(message: MessageWithParts) {
+  return (
+    message.role === 'assistant' &&
+    message.status === 'completed' &&
+    message.summary === true &&
+    message.content.some(
+      (part) => part.type === 'summary' && part.source === 'compaction'
+    )
+  );
+}
+
 export function filterCompacted(messages: MessageWithParts[]) {
-  return messages;
+  const latestCompactionRequestIndex = [...messages]
+    .map((message, index) => ({ index, message }))
+    .reverse()
+    .find(({ message }) => isCompactionRequestMessage(message))?.index;
+
+  if (latestCompactionRequestIndex === undefined) {
+    return messages;
+  }
+
+  const hasSummaryAfterRequest = messages
+    .slice(latestCompactionRequestIndex + 1)
+    .some((message) => isCompactionSummaryMessage(message));
+
+  if (!hasSummaryAfterRequest) {
+    return messages;
+  }
+
+  return messages.slice(latestCompactionRequestIndex);
 }
 
 export function insertReminders(messages: MessageWithParts[]) {
@@ -79,6 +111,7 @@ function toCompletedToolContext(
 
   return {
     attachments: part.state.attachments,
+    compactedAt: part.state.compactedAt,
     input: part.state.input,
     modelToolCallId: part.modelToolCallId,
     outputPolicy:

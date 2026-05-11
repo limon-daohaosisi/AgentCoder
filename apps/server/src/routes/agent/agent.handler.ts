@@ -89,6 +89,28 @@ export const cancelCurrentRun = appFactory.createHandlers(
   }
 );
 
+export const manualCompact = appFactory.createHandlers(
+  createValidator.param(AgentSchemas.manualCompact.param),
+  createValidator.json(AgentSchemas.manualCompact.json),
+  async (c) => {
+    const { sessionId } = c.req.valid('param');
+
+    try {
+      const response = await sessionInteractionService.manualCompact({
+        sessionId
+      });
+
+      return c.json({ data: response }, 202);
+    } catch (error) {
+      if (isServiceError(error)) {
+        return c.json({ error: error.message }, error.status);
+      }
+
+      throw error;
+    }
+  }
+);
+
 export const stream = appFactory.createHandlers(
   createValidator.param(AgentSchemas.stream.param),
   (c) => {

@@ -139,6 +139,88 @@ test('POST /api/sessions/:sessionId/messages delegates to SessionInteractionServ
   assert.equal(payload.data?.message.sessionId, 'session-123');
 });
 
+test('POST /api/sessions/:sessionId/compact delegates to SessionInteractionService and returns 202', async () => {
+  const compact = mock.method(
+    sessionInteractionService,
+    'manualCompact',
+    async (input: { sessionId: string }) => {
+      assert.deepEqual(input, { sessionId: 'session-compact' });
+
+      return {
+        compacted: true,
+        requestMessageId: 'compact-request-1',
+        run: {
+          createdAt: '2026-05-10T00:00:00.000Z',
+          id: 'run-compact-1',
+          sessionId: 'session-compact',
+          startedAt: '2026-05-10T00:00:00.000Z',
+          status: 'completed' as const,
+          updatedAt: '2026-05-10T00:00:01.000Z'
+        },
+        summaryMessageId: 'compact-summary-1'
+      };
+    }
+  );
+
+  const response = await app.request('/api/sessions/session-compact/compact', {
+    body: JSON.stringify({}),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(compact.mock.calls.length, 1);
+  const payload = await parseJson<{
+    compacted: boolean;
+    requestMessageId: string;
+    summaryMessageId: string;
+  }>(response);
+
+  assert.equal(payload.data?.compacted, true);
+  assert.equal(payload.data?.requestMessageId, 'compact-request-1');
+  assert.equal(payload.data?.summaryMessageId, 'compact-summary-1');
+});
+
+test('manual compact route does not invoke prompt submission flow', async () => {
+  const compact = mock.method(
+    sessionInteractionService,
+    'manualCompact',
+    async () => ({
+      compacted: true,
+      requestMessageId: 'compact-request-2',
+      run: {
+        createdAt: '2026-05-10T00:00:00.000Z',
+        id: 'run-compact-2',
+        sessionId: 'session-compact-2',
+        startedAt: '2026-05-10T00:00:00.000Z',
+        status: 'completed' as const,
+        updatedAt: '2026-05-10T00:00:01.000Z'
+      },
+      summaryMessageId: 'compact-summary-2'
+    })
+  );
+  const prompt = mock.method(sessionInteractionService, 'prompt', async () => {
+    throw new Error('prompt must not be called by manual compact route');
+  });
+
+  const response = await app.request(
+    '/api/sessions/session-compact-2/compact',
+    {
+      body: JSON.stringify({}),
+      headers: {
+        'content-type': 'application/json'
+      },
+      method: 'POST'
+    }
+  );
+
+  assert.equal(response.status, 202);
+  assert.equal(compact.mock.calls.length, 1);
+  assert.equal(prompt.mock.calls.length, 0);
+});
+
 test('agent routes map ServiceError instances to HTTP errors', async () => {
   mock.method(sessionInteractionService, 'prompt', async () => {
     throw new ServiceError('Session already has an active run.', 409);

@@ -1,4 +1,5 @@
 import type { LanguageModel, ModelMessage } from 'ai';
+import { COMPACTED_TOOL_PLACEHOLDER } from '../session-compaction.js';
 import { DEFAULT_TOOL_OUTPUT_POLICY } from '../tools/index.js';
 import { truncateText } from '../tools/shared/truncation.js';
 import type {
@@ -206,6 +207,13 @@ function toToolResultOutput(
   part: Extract<ContextPart, { type: 'tool' }>
 ): ToolResultOutput {
   const policy = part.outputPolicy ?? DEFAULT_TOOL_OUTPUT_POLICY;
+
+  if (part.compactedAt) {
+    return {
+      type: 'text',
+      value: COMPACTED_TOOL_PLACEHOLDER
+    } satisfies ToolResultOutput;
+  }
 
   if (part.errorText !== undefined || part.errorReason !== undefined) {
     return toErrorOutput({

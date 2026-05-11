@@ -166,5 +166,15 @@ export const messageService = {
           content: messagePartRepository.listByMessage(message.id)
         }
       : null;
+  },
+
+  markMessagesCompacted(input: {
+    compactedByMessageId: string;
+    messageIds: string[];
+  }) {
+    return messageRepository.markCompacted(input).map((message) => ({
+      ...message,
+      content: messagePartRepository.listByMessage(message.id)
+    }));
   }
 };

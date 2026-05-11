@@ -28,6 +28,7 @@ import {
   listMessages,
   listSessions,
   listWorkspaces,
+  manualCompact,
   resumeSession,
   submitSessionMessage
 } from './lib/api';
@@ -312,6 +313,33 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
       });
     }
   });
+  const manualCompactMutation = useMutation({
+    mutationFn: () => {
+      if (!props.sessionId) {
+        throw new Error('当前还没有选中的 session');
+      }
+
+      return manualCompact(props.sessionId);
+    },
+    onSuccess: async () => {
+      if (!props.sessionId) {
+        return;
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['resume-session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['sessions', props.workspaceId]
+      });
+    }
+  });
   const cancelCurrentRunMutation = useMutation({
     mutationFn: () => {
       if (!props.sessionId) {
@@ -403,7 +431,23 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     currentSession?.status === 'waiting_approval';
   const pendingApprovals = resumeQuery.data?.pendingApprovals ?? [];
   const isComposerDisabled =
-    !props.sessionId || submitMessageMutation.isPending || !canSubmitMessage;
+    !props.sessionId ||
+    submitMessageMutation.isPending ||
+    manualCompactMutation.isPending ||
+    !canSubmitMessage;
+
+  function isManualCompactCommand(content: string) {
+    return content.trimStart().startsWith('/compact');
+  }
+
+  function handleComposerSubmit(content: string) {
+    if (isManualCompactCommand(content)) {
+      manualCompactMutation.mutate();
+      return;
+    }
+
+    submitMessageMutation.mutate(content);
+  }
 
   return (
     <div className="min-h-screen px-4 py-4 md:px-6">
@@ -494,12 +538,20 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                     {getErrorMessage(submitMessageMutation.error)}
                   </p>
                 ) : null}
+                {manualCompactMutation.isError ? (
+                  <p className="mt-4 text-sm text-red-700">
+                    {getErrorMessage(manualCompactMutation.error)}
+                  </p>
+                ) : null}
                 <Composer
                   defaultValue={currentSessionView.composerValue}
                   disabled={isComposerDisabled}
                   hint={currentSessionView.composerHint}
-                  isSubmitting={submitMessageMutation.isPending}
-                  onSubmit={(content) => submitMessageMutation.mutate(content)}
+                  isSubmitting={
+                    submitMessageMutation.isPending ||
+                    manualCompactMutation.isPending
+                  }
+                  onSubmit={handleComposerSubmit}
                 />
               </section>
 
