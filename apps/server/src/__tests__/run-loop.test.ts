@@ -2,7 +2,9 @@ import {
   RunLoop,
   type ProcessTurnInput,
   type ProcessorResult,
-  type RunLoopDeps
+  type RunLoopDeps,
+  type SessionCompactionDeps,
+  type StreamModelResponse
 } from '@opencode/agent';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
@@ -41,6 +43,37 @@ function createDeps(overrides: Partial<RunLoopDeps> = {}): RunLoopDeps {
   });
 }
 
+function createCompactionDeps(
+  overrides: Partial<SessionCompactionDeps> = {}
+): SessionCompactionDeps {
+  const base: SessionCompactionDeps = {
+    appendSessionEvent: (event) =>
+      dbTestContext.sessionEventService.append(event),
+    createMessage: (input) => messageService.createMessage(input),
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId),
+    listRecentFileSnapshots: () => [],
+    markMessagesCompacted: () => undefined,
+    modelFactory: () => 'openai:gpt-4.1-mini' as never,
+    persist: (callback) => callback(),
+    repairDanglingToolPart: (input) => input.part,
+    streamModelResponse: (() => {
+      throw new Error(
+        'streamModelResponse must be overridden for compaction tests'
+      );
+    }) as SessionCompactionDeps['streamModelResponse'],
+    updateMessagePart: (part) => dbTestContext.partService.updatePart(part),
+    updateMessageRuntime: () => null,
+    updateToolPartWithToolCall: (input) =>
+      dbTestContext.partService.updateToolPartWithToolCall(input)
+  };
+
+  return {
+    ...base,
+    ...overrides
+  };
+}
+
 function createRunLoopInput(sessionId: string) {
   return {
     runId: 'run-test',
@@ -48,6 +81,10 @@ function createRunLoopInput(sessionId: string) {
     signal: new AbortController().signal,
     workspaceRoot: environment.workspaceRoot
   };
+}
+
+function createPersistedRun(sessionId: string) {
+  return dbTestContext.agentRunService.createRun({ sessionId });
 }
 
 test('RunLoop rebuilds context and continues after auto tool execution', async () => {
@@ -133,4 +170,314 @@ test('RunLoop does not call model when session is waiting approval', async () =>
 
   assert.deepEqual(result, { kind: 'paused_for_approval' });
   assert.equal(called, false);
+});
+
+test('RunLoop auto compacts and continues when context needs full compaction', async () => {
+  const session = createSessionWithUserMessage();
+  const run = createPersistedRun(session.id);
+  messageService.createMessage({
+    content: [{ text: 'Prior assistant output', type: 'text' }],
+    role: 'assistant',
+    sessionId: session.id
+  });
+  let modelCalls = 0;
+
+  const processor = {
+    async processTurn(input: ProcessTurnInput) {
+      modelCalls += 1;
+
+      assert.ok(
+        input.request.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) =>
+                'text' in part &&
+                typeof part.text === 'string' &&
+                part.text.includes('Current Objective')
+            )
+        )
+      );
+
+      return {
+        finishReason: 'stop' as const,
+        kind: 'completed' as const
+      };
+    }
+  };
+  const loop = new RunLoop(
+    processor,
+    {
+      async executePendingToolParts() {
+        return { executedPartIds: [], kind: 'completed' as const };
+      }
+    },
+    createDeps(),
+    createCompactionDeps({
+      streamModelResponse: (() => ({
+        fullStream: {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              id: 'compact-summary-1',
+              text: '<analysis>draft</analysis><summary>Current Objective\n- Continue the task</summary>',
+              type: 'text-delta'
+            };
+            yield {
+              response: { id: 'compact-response-1' },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            };
+            yield {
+              totalUsage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              },
+              type: 'finish'
+            };
+          }
+        }
+      })) as unknown as StreamModelResponse
+    }),
+    2
+  );
+
+  const originalAnalyze = loop['sizeGuard'].analyze.bind(loop['sizeGuard']);
+  let analyzeCalls = 0;
+  loop['sizeGuard'].analyze = ((input) => {
+    analyzeCalls += 1;
+
+    if (analyzeCalls === 1) {
+      return {
+        estimatedRequestTokens: 80_000,
+        fits: false,
+        hardFailTokens: 96_000,
+        recommendation: 'needs_full_compaction',
+        softBudgetTokens: 56_000
+      };
+    }
+
+    return originalAnalyze(input);
+  }) as (typeof loop)['sizeGuard']['analyze'];
+
+  const result = await loop.run({
+    ...createRunLoopInput(session.id),
+    runId: run.id
+  });
+
+  assert.deepEqual(result, { finishReason: 'stop', kind: 'completed' });
+  assert.equal(modelCalls, 1);
+  assert.ok(
+    messageService
+      .listMessages(session.id)
+      .some(
+        (message) =>
+          message.summary === true &&
+          message.content.some((part) => part.type === 'summary')
+      )
+  );
+  assert.ok(
+    dbTestContext.sessionEventService
+      .listAfterSequence(session.id, 0)
+      .some(
+        (envelope) =>
+          envelope.event.type === 'message.part.created' &&
+          envelope.event.part.type === 'summary'
+      )
+  );
+  assert.ok(
+    dbTestContext.sessionEventService
+      .listAfterSequence(session.id, 0)
+      .some(
+        (envelope) =>
+          envelope.event.type === 'message.part.updated' &&
+          envelope.event.part.type === 'summary'
+      )
+  );
+});
+
+test('RunLoop blocks when compact summary attempts to call a tool', async () => {
+  const session = createSessionWithUserMessage();
+  const run = createPersistedRun(session.id);
+  const loop = new RunLoop(
+    {
+      async processTurn() {
+        throw new Error('main processor should not run after compact failure');
+      }
+    },
+    {
+      async executePendingToolParts() {
+        return { executedPartIds: [], kind: 'completed' as const };
+      }
+    },
+    createDeps(),
+    createCompactionDeps({
+      streamModelResponse: (() => ({
+        fullStream: {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              input: { command: 'pwd' },
+              toolCallId: 'compact-tool-call',
+              toolName: 'bash',
+              type: 'tool-call'
+            };
+            yield {
+              finishReason: 'tool-calls',
+              response: { id: 'compact-response-2' },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            };
+          }
+        }
+      })) as unknown as StreamModelResponse
+    }),
+    2
+  );
+  loop['sizeGuard'].analyze = (() => ({
+    estimatedRequestTokens: 80_000,
+    fits: false,
+    hardFailTokens: 96_000,
+    recommendation: 'needs_full_compaction',
+    softBudgetTokens: 56_000
+  })) as (typeof loop)['sizeGuard']['analyze'];
+
+  const result = await loop.run({
+    ...createRunLoopInput(session.id),
+    runId: run.id
+  });
+
+  assert.deepEqual(result, {
+    error: 'Compact summary attempted to call a tool.',
+    kind: 'context_too_large'
+  });
+});
+
+test('RunLoop escalates to full compaction when tool-result compaction is insufficient', async () => {
+  const session = createSessionWithUserMessage();
+  const run = createPersistedRun(session.id);
+  let modelCalls = 0;
+  let oldToolCompactions = 0;
+  let fullCompactions = 0;
+
+  const loop = new RunLoop(
+    {
+      async processTurn() {
+        modelCalls += 1;
+        return {
+          finishReason: 'stop' as const,
+          kind: 'completed' as const
+        };
+      }
+    },
+    {
+      async executePendingToolParts() {
+        return { executedPartIds: [], kind: 'completed' as const };
+      }
+    },
+    createDeps(),
+    createCompactionDeps({
+      streamModelResponse: (() => ({
+        fullStream: {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              id: 'compact-summary-3',
+              text: '<summary>Current Objective\n- Continue safely</summary>',
+              type: 'text-delta'
+            };
+            yield {
+              response: { id: 'compact-response-3' },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            };
+            yield {
+              totalUsage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              },
+              type: 'finish'
+            };
+          }
+        }
+      })) as unknown as StreamModelResponse
+    }),
+    2
+  );
+  const compaction = loop['compaction'];
+
+  assert.ok(compaction);
+
+  const originalCompactOldToolOutputs =
+    compaction.compactOldToolOutputs.bind(compaction);
+  compaction.compactOldToolOutputs = ((
+    input: Parameters<typeof originalCompactOldToolOutputs>[0]
+  ) => {
+    oldToolCompactions += 1;
+    return originalCompactOldToolOutputs(input);
+  }) as typeof compaction.compactOldToolOutputs;
+
+  const originalRunAutoCompaction =
+    compaction.runAutoCompaction.bind(compaction);
+  compaction.runAutoCompaction = (async (
+    input: Parameters<typeof originalRunAutoCompaction>[0]
+  ) => {
+    fullCompactions += 1;
+    return originalRunAutoCompaction(input);
+  }) as typeof compaction.runAutoCompaction;
+
+  let analyzeCalls = 0;
+  loop['sizeGuard'].analyze = (() => {
+    analyzeCalls += 1;
+
+    if (analyzeCalls <= 2) {
+      return {
+        estimatedRequestTokens: 70_000,
+        fits: false,
+        hardFailTokens: 96_000,
+        recommendation: 'needs_tool_result_compaction' as const,
+        softBudgetTokens: 56_000
+      };
+    }
+
+    return {
+      estimatedRequestTokens: 50_000,
+      fits: true,
+      hardFailTokens: 96_000,
+      recommendation: 'fits' as const,
+      softBudgetTokens: 56_000
+    };
+  }) as (typeof loop)['sizeGuard']['analyze'];
+
+  const result = await loop.run({
+    ...createRunLoopInput(session.id),
+    runId: run.id
+  });
+
+  assert.deepEqual(result, { finishReason: 'stop', kind: 'completed' });
+  assert.equal(oldToolCompactions, 1);
+  assert.equal(fullCompactions, 1);
+  assert.equal(modelCalls, 1);
 });

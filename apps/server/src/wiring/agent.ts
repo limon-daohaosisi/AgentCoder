@@ -2,10 +2,12 @@ import {
   Lifecycle,
   prepareToolExecution,
   RunLoop,
+  SessionCompaction,
   SessionProcessor,
   ToolExecutor,
   type FileSnapshotArtifact,
   type LifecycleDeps,
+  type SessionCompactionDeps,
   type RunLoopDeps,
   type SessionProcessorDeps
 } from '@opencode/agent';
@@ -153,9 +155,56 @@ export function buildRunLoopDeps(
   };
 }
 
+export function buildSessionCompactionDeps(
+  overrides: Partial<SessionCompactionDeps> = {}
+): SessionCompactionDeps {
+  return {
+    appendSessionEvent: (event) => sessionEventService.append(event),
+    createMessage: (input) => messageService.createMessage(input),
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId),
+    listRecentFileSnapshots: (input) =>
+      fileSnapshotService.listRecentBySession(input),
+    markMessagesCompacted: (input) =>
+      messageService.markMessagesCompacted(input),
+    modelFactory: createLanguageModel,
+    persist: (callback) => Database.transaction(callback),
+    processTurn: (input) => sessionProcessor.processTurn(input),
+    repairDanglingToolPart: (input) => {
+      if (input.part.state.status !== 'error') {
+        return input.part;
+      }
+
+      return toolStateService.updateToolPartWithToolCall({
+        part: input.part,
+        toolCall: {
+          completedAt: input.part.state.completedAt,
+          errorText: input.part.state.errorText,
+          id: input.part.toolCallId,
+          result: input.part.state.payload,
+          startedAt: input.part.state.startedAt,
+          status: 'failed',
+          updatedAt: input.part.updatedAt
+        }
+      }).part;
+    },
+    streamModelResponse,
+    updateMessagePart: (part) => messagePartService.updatePart(part),
+    updateMessageRuntime: (input) => messageService.updateMessageRuntime(input),
+    updateToolPartWithToolCall: (input) =>
+      toolStateService.updateToolPartWithToolCall(input),
+    ...overrides
+  };
+}
+
+export const sessionCompaction = new SessionCompaction(
+  buildSessionCompactionDeps()
+);
+
 export const runLoop = new RunLoop(
   sessionProcessor,
   toolExecutor,
-  buildRunLoopDeps()
+  buildRunLoopDeps(),
+  buildSessionCompactionDeps()
 );
 export const lifecycle = new Lifecycle(runLoop, buildLifecycleDeps());

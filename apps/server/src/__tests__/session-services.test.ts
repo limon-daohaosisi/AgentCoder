@@ -1,8 +1,12 @@
+import { SessionCompaction, type StreamModelResponse } from '@opencode/agent';
+import { SessionInteractionService } from '../services/agent/interaction-service.js';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import type { MessagePart } from '@opencode/shared';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { approvalRepository } from '../repositories/approval-repository.js';
+import { artifactRepository } from '../repositories/artifact-repository.js';
+import { buildSessionCompactionDeps } from '../wiring/agent.js';
 
 const {
   buildSessionCheckpoint,
@@ -199,4 +203,337 @@ test('messageService rejects writes for missing sessions', () => {
       }),
     /Session not found: missing-session/
   );
+});
+
+test('manual compact does not auto-continue the original task and restores recent read context', async () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Compact the current durable transcript',
+    workspaceId: workspace.id
+  });
+  const run = dbTestContext.agentRunService.createRun({
+    sessionId: session.id
+  });
+
+  messageService.createMessage({
+    content: [{ text: 'Review src/index.ts and keep going', type: 'text' }],
+    role: 'user',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+
+  partService.createToolPartWithToolCall({
+    part: {
+      createdAt: '2026-05-10T00:00:00.000Z',
+      id: 'recent-read-part',
+      messageId: assistant.id,
+      modelToolCallId: 'recent-read-model-call',
+      order: 0,
+      sessionId: session.id,
+      state: {
+        completedAt: '2026-05-10T00:00:02.000Z',
+        input: { filePath: 'src/index.ts' },
+        outputText:
+          '<path>src/index.ts</path>\n<type>file</type>\n<content>\n1: export const recovered = true;\n</content>',
+        payload: {
+          content: '1: export const recovered = true;',
+          filePath: 'src/index.ts',
+          fullRead: true,
+          type: 'file'
+        },
+        startedAt: '2026-05-10T00:00:01.000Z',
+        status: 'completed'
+      },
+      toolCallId: 'recent-read-tool-call',
+      toolName: 'read',
+      type: 'tool',
+      updatedAt: '2026-05-10T00:00:02.000Z'
+    },
+    toolCall: {
+      createdAt: '2026-05-10T00:00:00.000Z',
+      id: 'recent-read-tool-call',
+      input: { filePath: 'src/index.ts' },
+      messageId: assistant.id,
+      messagePartId: 'recent-read-part',
+      modelToolCallId: 'recent-read-model-call',
+      requiresApproval: false,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'completed',
+      taskId: null,
+      toolName: 'read',
+      updatedAt: '2026-05-10T00:00:02.000Z'
+    }
+  });
+
+  const interactionService = new SessionInteractionService(
+    undefined,
+    undefined,
+    {
+      async runManualCompaction() {
+        const requestMessage = messageService.createMessage({
+          content: [
+            {
+              auto: false,
+              reason: 'manual',
+              targetMessageId: assistant.id,
+              type: 'compaction'
+            }
+          ],
+          role: 'user',
+          runId: run.id,
+          sessionId: session.id,
+          status: 'completed'
+        });
+        const summaryMessage = messageService.createMessage({
+          content: [
+            {
+              source: 'compaction',
+              text: 'Current Objective\n- Compact the current durable transcript',
+              type: 'summary'
+            }
+          ],
+          role: 'assistant',
+          runId: run.id,
+          sessionId: session.id,
+          status: 'completed',
+          summary: true
+        });
+        const postContextMessage = messageService.createMessage({
+          content: [
+            {
+              metadata: { kind: 'post_compact_context' },
+              synthetic: true,
+              text: 'Post-compact working set:\n\nRecovered recent read for src/index.ts:\n\n<path>src/index.ts</path>\n<type>file</type>\n<content>\n1: export const recovered = true;\n</content>',
+              type: 'text'
+            }
+          ],
+          role: 'assistant',
+          runId: run.id,
+          sessionId: session.id,
+          status: 'completed'
+        });
+
+        return {
+          kind: 'completed' as const,
+          postContextMessageId: postContextMessage.id,
+          requestMessageId: requestMessage.id,
+          summaryMessageId: summaryMessage.id
+        };
+      }
+    } as never
+  );
+
+  const result = await interactionService.manualCompact({
+    sessionId: session.id
+  });
+
+  assert.equal(result.compacted, true);
+
+  const messages = messageService.listMessages(session.id);
+  const postCompactMessage = messages.find((message) =>
+    message.content.some(
+      (part) =>
+        part.type === 'text' &&
+        part.synthetic === true &&
+        part.metadata?.kind === 'post_compact_context'
+    )
+  );
+
+  assert.ok(postCompactMessage);
+  assert.match(
+    postCompactMessage?.content[0]?.type === 'text'
+      ? postCompactMessage.content[0].text
+      : '',
+    /Recovered recent read for src\/index\.ts:/
+  );
+  assert.match(
+    postCompactMessage?.content[0]?.type === 'text'
+      ? postCompactMessage.content[0].text
+      : '',
+    /export const recovered = true/
+  );
+  assert.equal(sessionService.getSession(session.id)?.status, 'idle');
+});
+
+test('manual compact skips restoring stale recent reads when a newer snapshot exists', async () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Compact only fresh reads',
+    workspaceId: workspace.id
+  });
+  const run = dbTestContext.agentRunService.createRun({
+    sessionId: session.id
+  });
+
+  messageService.createMessage({
+    content: [{ text: 'Review src/index.ts', type: 'text' }],
+    role: 'user',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+
+  partService.createToolPartWithToolCall({
+    part: {
+      createdAt: '2026-05-10T00:00:00.000Z',
+      id: 'stale-read-part',
+      messageId: assistant.id,
+      modelToolCallId: 'stale-read-model-call',
+      order: 0,
+      sessionId: session.id,
+      state: {
+        completedAt: '2026-05-10T00:00:02.000Z',
+        input: { filePath: 'src/index.ts' },
+        metadata: { snapshotArtifactId: 'old-snapshot-artifact' },
+        outputText:
+          '<path>src/index.ts</path>\n<type>file</type>\n<content>\n1: export const stale = true;\n</content>',
+        payload: {
+          content: '1: export const stale = true;',
+          filePath: 'src/index.ts',
+          fullRead: true,
+          snapshotArtifactId: 'old-snapshot-artifact',
+          type: 'file'
+        },
+        startedAt: '2026-05-10T00:00:01.000Z',
+        status: 'completed'
+      },
+      toolCallId: 'stale-read-tool-call',
+      toolName: 'read',
+      type: 'tool',
+      updatedAt: '2026-05-10T00:00:02.000Z'
+    },
+    toolCall: {
+      createdAt: '2026-05-10T00:00:00.000Z',
+      id: 'stale-read-tool-call',
+      input: { filePath: 'src/index.ts' },
+      messageId: assistant.id,
+      messagePartId: 'stale-read-part',
+      modelToolCallId: 'stale-read-model-call',
+      requiresApproval: false,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'completed',
+      taskId: null,
+      toolName: 'read',
+      updatedAt: '2026-05-10T00:00:02.000Z'
+    }
+  });
+
+  artifactRepository.create({
+    createdAt: '2026-05-10T00:00:02.000Z',
+    id: 'old-snapshot-artifact',
+    kind: 'file_snapshot',
+    payload: {
+      fullRead: true,
+      mtimeMs: 1,
+      path: 'src/index.ts',
+      readAt: '2026-05-10T00:00:02.000Z',
+      sha256: 'old-hash',
+      size: 10,
+      truncated: false,
+      version: 1
+    },
+    sessionId: session.id,
+    title: 'src/index.ts',
+    toolCallId: 'stale-read-tool-call'
+  });
+  artifactRepository.create({
+    createdAt: '2026-05-10T00:05:00.000Z',
+    id: 'new-snapshot-artifact',
+    kind: 'file_snapshot',
+    payload: {
+      fullRead: true,
+      mtimeMs: 2,
+      path: 'src/index.ts',
+      readAt: '2026-05-10T00:05:00.000Z',
+      sha256: 'new-hash',
+      size: 20,
+      truncated: false,
+      version: 1
+    },
+    sessionId: session.id,
+    title: 'src/index.ts',
+    toolCallId: 'stale-read-tool-call'
+  });
+
+  const interactionService = new SessionInteractionService(
+    undefined,
+    undefined,
+    new SessionCompaction(
+      buildSessionCompactionDeps({
+        processTurn: undefined,
+        streamModelResponse: (() => ({
+          fullStream: {
+            async *[Symbol.asyncIterator]() {
+              yield {
+                id: 'compact-summary-stale-read',
+                text: '<summary>Current Objective\n- Keep only fresh context</summary>',
+                type: 'text-delta'
+              };
+              yield {
+                response: { id: 'compact-response-stale-read' },
+                type: 'finish-step',
+                usage: {
+                  inputTokenDetails: {},
+                  inputTokens: 1,
+                  outputTokenDetails: {},
+                  outputTokens: 1,
+                  totalTokens: 2
+                }
+              };
+              yield {
+                totalUsage: {
+                  inputTokenDetails: {},
+                  inputTokens: 1,
+                  outputTokenDetails: {},
+                  outputTokens: 1,
+                  totalTokens: 2
+                },
+                type: 'finish'
+              };
+            }
+          }
+        })) as unknown as StreamModelResponse
+      })
+    )
+  );
+
+  const result = await interactionService.manualCompact({
+    sessionId: session.id
+  });
+
+  assert.equal(result.compacted, true);
+
+  const postCompactMessage = messageService
+    .listMessages(session.id)
+    .find((message) =>
+      message.content.some(
+        (part) =>
+          part.type === 'text' &&
+          part.synthetic === true &&
+          part.metadata?.kind === 'post_compact_context'
+      )
+    );
+
+  assert.equal(postCompactMessage, undefined);
 });

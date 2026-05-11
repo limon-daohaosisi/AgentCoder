@@ -38,6 +38,7 @@ type CreateMessagePartWithRunInput = CreateMessagePartInput & {
 };
 
 type CreateMessageInput = {
+  agentName?: string;
   content?: CreateMessagePartInput[];
   createdAt?: string;
   id?: string;
@@ -46,6 +47,7 @@ type CreateMessageInput = {
   runId?: string;
   sessionId: string;
   status?: MessageDto['status'];
+  summary?: boolean;
   taskId?: string;
 };
 
@@ -111,6 +113,10 @@ export type SessionProcessorDeps = {
 };
 
 export type ProcessTurnInput = {
+  assistantMessage?: {
+    summary?: boolean;
+    summarySource?: Extract<MessagePart, { type: 'summary' }>['source'];
+  };
   request: AiSdkTurnRequest;
   runId: string;
   signal: AbortSignal;
@@ -148,7 +154,7 @@ type AssistantMessageState = {
   message: MessageDto | null;
   nextOrder: number;
   reasoningParts: Map<string, Extract<MessagePart, { type: 'reasoning' }>>;
-  textParts: Map<string, Extract<MessagePart, { type: 'text' }>>;
+  textParts: Map<string, Extract<MessagePart, { type: 'summary' | 'text' }>>;
   toolCalls: Map<string, ToolCallDto>;
   toolInputBuffers: Map<string, string>;
   toolParts: Extract<MessagePart, { type: 'tool' }>[];
@@ -283,7 +289,11 @@ export class SessionProcessor {
           const outcome = await this.persistToolCall(input, state, event);
 
           if (outcome.kind === 'failed') {
-            return outcome;
+            return await this.failAssistantMessage(
+              input.sessionId,
+              state,
+              new Error(outcome.error)
+            );
           }
         } else if (event.type === 'finish-step') {
           finishReason = normalizeFinishReason(event.finishReason);
@@ -444,7 +454,10 @@ export class SessionProcessor {
   }
 
   private async applyTextDelta(
-    input: Pick<ProcessTurnInput, 'runId' | 'sessionId'>,
+    input: Pick<
+      ProcessTurnInput,
+      'assistantMessage' | 'request' | 'runId' | 'sessionId'
+    >,
     state: AssistantMessageState,
     streamPartId: string,
     delta: string
@@ -452,20 +465,33 @@ export class SessionProcessor {
     const message = await this.ensureAssistantMessage(
       input.sessionId,
       input.runId,
-      state
+      state,
+      input
     );
     this.persist(() => {
       const existing = state.textParts.get(streamPartId);
 
       if (!existing) {
-        const part = this.deps.appendMessagePart({
-          messageId: message.id,
-          order: state.nextOrder++,
-          runId: input.runId,
-          sessionId: input.sessionId,
-          text: delta,
-          type: 'text'
-        }) as Extract<MessagePart, { type: 'text' }>;
+        const part = this.deps.appendMessagePart(
+          input.assistantMessage?.summarySource
+            ? {
+                messageId: message.id,
+                order: state.nextOrder++,
+                runId: input.runId,
+                sessionId: input.sessionId,
+                source: input.assistantMessage.summarySource,
+                text: delta,
+                type: 'summary'
+              }
+            : {
+                messageId: message.id,
+                order: state.nextOrder++,
+                runId: input.runId,
+                sessionId: input.sessionId,
+                text: delta,
+                type: 'text'
+              }
+        ) as Extract<MessagePart, { type: 'summary' | 'text' }>;
 
         state.textParts.set(streamPartId, part);
         this.appendPartCreatedEvent({
@@ -478,7 +504,7 @@ export class SessionProcessor {
         const updated = this.deps.updateMessagePart({
           ...existing,
           text: existing.text + delta
-        }) as Extract<MessagePart, { type: 'text' }> | null;
+        }) as Extract<MessagePart, { type: 'summary' | 'text' }> | null;
 
         if (updated) {
           state.textParts.set(streamPartId, updated);
@@ -579,7 +605,8 @@ export class SessionProcessor {
     const message = await this.ensureAssistantMessage(
       input.sessionId,
       input.runId,
-      state
+      state,
+      input
     );
     const now = this.now();
     const toolCallId = this.createId();
@@ -835,7 +862,8 @@ export class SessionProcessor {
   private async ensureAssistantMessage(
     sessionId: string,
     runId: string,
-    state: AssistantMessageState
+    state: AssistantMessageState,
+    input?: Partial<Pick<ProcessTurnInput, 'assistantMessage' | 'request'>>
   ) {
     if (state.message) {
       return state.message;
@@ -844,10 +872,17 @@ export class SessionProcessor {
     const message = this.persist(() => {
       const created = this.deps.createMessage({
         content: [],
+        model: input?.request
+          ? {
+              modelId: input.request.modelId,
+              providerId: input.request.providerId
+            }
+          : undefined,
         role: 'assistant',
         runId,
         sessionId,
-        status: 'running'
+        status: 'running',
+        summary: input?.assistantMessage?.summary
       });
 
       this.deps.appendSessionEvent({

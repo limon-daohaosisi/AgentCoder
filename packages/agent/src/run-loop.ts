@@ -13,6 +13,10 @@ import { ContextBuilder } from './context/builder.js';
 import type { ContextBuilderDeps } from './context/builder.js';
 import { ContextSizeGuard } from './context/size-guard.js';
 import { resolveTools } from './context/tool-registry.js';
+import {
+  SessionCompaction,
+  type SessionCompactionDeps
+} from './session-compaction.js';
 import type { ProcessorResult, SessionProcessor } from './session-processor.js';
 import type { ToolExecutor } from './tool-executor.js';
 
@@ -45,6 +49,7 @@ export type RunLoopDeps = ContextBuilderDeps & {
 
 export class RunLoop {
   private readonly contextBuilder: ContextBuilder;
+  private readonly compaction?: SessionCompaction;
   private readonly sizeGuard = new ContextSizeGuard();
 
   constructor(
@@ -54,9 +59,14 @@ export class RunLoop {
       'executePendingToolParts'
     >,
     private readonly deps: RunLoopDeps,
+    compactionDeps?: SessionCompactionDeps,
     private readonly maxSteps = 10
   ) {
     this.contextBuilder = new ContextBuilder(deps);
+
+    if (compactionDeps) {
+      this.compaction = new SessionCompaction(compactionDeps);
+    }
   }
 
   async run(input: RunLoopInput): Promise<RunLoopResult> {
@@ -81,22 +91,77 @@ export class RunLoop {
       let request: AiSdkTurnRequest | null = null;
 
       try {
-        const context = this.contextBuilder.build(input);
-        const resolvedTools = resolveTools({
-          agentName: context.lastUser.agentName,
-          context,
-          lastUser: context.lastUser,
-          model: context.lastUser.model,
-          sessionId: input.sessionId
-        });
+        const buildTurn = () => {
+          const context = this.contextBuilder.build(input);
+          const resolvedTools = resolveTools({
+            agentName: context.lastUser.agentName,
+            context,
+            lastUser: context.lastUser,
+            model: context.lastUser.model,
+            sessionId: input.sessionId
+          });
+          const builtRequest = toAiSdkTurnRequest({
+            context,
+            modelFactory: this.deps.modelFactory,
+            tools: resolvedTools
+          });
 
-        request = toAiSdkTurnRequest({
-          context,
-          modelFactory: this.deps.modelFactory,
-          tools: resolvedTools
-        });
+          return { context, request: builtRequest, resolvedTools };
+        };
 
-        this.sizeGuard.assertFits({ context, request, resolvedTools });
+        let built = buildTurn();
+        let analysis = this.sizeGuard.analyze(built);
+
+        let attemptedToolResultCompaction = false;
+
+        if (
+          analysis.recommendation === 'needs_tool_result_compaction' &&
+          this.compaction
+        ) {
+          this.compaction.compactOldToolOutputs({
+            runId: input.runId,
+            sessionId: input.sessionId
+          });
+          attemptedToolResultCompaction = true;
+          built = buildTurn();
+          analysis = this.sizeGuard.analyze(built);
+        }
+
+        if (
+          analysis.recommendation === 'needs_full_compaction' ||
+          (attemptedToolResultCompaction &&
+            analysis.recommendation === 'needs_tool_result_compaction')
+        ) {
+          if (!this.compaction) {
+            return { error: contextTooLargeError, kind: 'context_too_large' };
+          }
+
+          const compactionResult = await this.compaction.runAutoCompaction({
+            context: built.context,
+            reason: 'budget',
+            runId: input.runId,
+            sessionId: input.sessionId,
+            signal: input.signal,
+            workspaceRoot: input.workspaceRoot
+          });
+
+          if (compactionResult.kind !== 'completed') {
+            return { error: compactionResult.error, kind: 'context_too_large' };
+          }
+
+          built = buildTurn();
+          analysis = this.sizeGuard.analyze(built);
+        }
+
+        if (analysis.recommendation === 'unrecoverable') {
+          return { error: contextTooLargeError, kind: 'context_too_large' };
+        }
+
+        if (analysis.recommendation !== 'fits') {
+          return { error: contextTooLargeError, kind: 'context_too_large' };
+        }
+
+        request = built.request;
       } catch (error) {
         if (error instanceof Error && error.message === contextTooLargeError) {
           return { error: contextTooLargeError, kind: 'context_too_large' };

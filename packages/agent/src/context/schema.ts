@@ -43,6 +43,7 @@ export type ContextPart =
     }
   | {
       attachments?: FileAttachment[];
+      compactedAt?: string;
       errorReason?: 'execution_denied' | 'interrupted' | 'tool_error';
       errorText?: string;
       input: Record<string, unknown>;

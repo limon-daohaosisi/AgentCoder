@@ -2,6 +2,7 @@ import {
   ContextBuilder,
   bashInputSchema,
   DEFAULT_TOOL_OUTPUT_POLICY,
+  filterCompacted,
   readInputSchema,
   toAiSdkMessages,
   toAiSdkToolSet,
@@ -464,6 +465,67 @@ test('AI SDK adapter rebuilds failed approved tool results as error-text tool me
   ]);
 });
 
+test('AI SDK adapter replaces compacted tool output with stable placeholder text', () => {
+  const session = createSession();
+
+  messageService.createMessage({
+    content: [{ text: 'Inspect old command output', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    sessionId: session.id
+  });
+
+  partService.appendPart({
+    messageId: assistant.id,
+    modelToolCallId: 'model-call-compacted',
+    order: 0,
+    sessionId: session.id,
+    state: {
+      compactedAt: '2026-05-10T00:00:02.000Z',
+      completedAt: '2026-05-10T00:00:01.000Z',
+      input: { command: 'ls -la' },
+      outputText: 'very large output that should stay out of model context',
+      payload: { ok: true },
+      startedAt: '2026-05-10T00:00:00.000Z',
+      status: 'completed'
+    },
+    toolCallId: 'tool-call-compacted',
+    toolName: 'bash',
+    type: 'tool'
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId)
+  });
+  const messages = toAiSdkMessages(
+    builder.build({
+      sessionId: session.id,
+      workspaceRoot: environment.workspaceRoot
+    })
+  );
+
+  assert.deepEqual(messages.at(-1), {
+    content: [
+      {
+        output: {
+          type: 'text',
+          value:
+            '[Older tool result compacted. Review the durable transcript or rerun the tool if full details are needed.]'
+        },
+        toolCallId: 'model-call-compacted',
+        toolName: 'bash',
+        type: 'tool-result'
+      }
+    ],
+    role: 'tool'
+  });
+});
+
 test('AI SDK adapter preserves execution-denied output when policy requests it', () => {
   const messages = toAiSdkMessages({
     debug: { skippedParts: [] },
@@ -523,4 +585,127 @@ test('AI SDK adapter preserves execution-denied output when policy requests it',
     ],
     role: 'tool'
   });
+});
+
+test('filterCompacted keeps only the latest successful compact suffix', () => {
+  const session = createSession();
+  const firstUser = messageService.createMessage({
+    content: [{ text: 'First prompt', type: 'text' }],
+    createdAt: '2026-05-10T00:00:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+  messageService.createMessage({
+    content: [
+      {
+        auto: true,
+        reason: 'budget',
+        targetMessageId: firstUser.id,
+        type: 'compaction'
+      }
+    ],
+    createdAt: '2026-05-10T00:01:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+  messageService.createMessage({
+    content: [
+      { source: 'compaction', text: 'Old compact summary', type: 'summary' }
+    ],
+    createdAt: '2026-05-10T00:01:10.000Z',
+    role: 'assistant',
+    sessionId: session.id,
+    summary: true
+  });
+  messageService.createMessage({
+    content: [{ text: 'Second prompt', type: 'text' }],
+    createdAt: '2026-05-10T00:02:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+  const latestRequest = messageService.createMessage({
+    content: [
+      {
+        auto: false,
+        reason: 'manual',
+        targetMessageId: firstUser.id,
+        type: 'compaction'
+      }
+    ],
+    createdAt: '2026-05-10T00:03:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+  const latestSummary = messageService.createMessage({
+    content: [
+      { source: 'compaction', text: 'Latest compact summary', type: 'summary' }
+    ],
+    createdAt: '2026-05-10T00:03:10.000Z',
+    role: 'assistant',
+    sessionId: session.id,
+    summary: true
+  });
+  const suffixMessage = messageService.createMessage({
+    content: [{ text: 'Recovered context', type: 'text' }],
+    createdAt: '2026-05-10T00:03:20.000Z',
+    role: 'assistant',
+    sessionId: session.id
+  });
+
+  const filtered = filterCompacted(messageService.listMessages(session.id));
+
+  assert.deepEqual(
+    filtered.map((message) => message.id),
+    [latestRequest.id, latestSummary.id, suffixMessage.id]
+  );
+});
+
+test('filterCompacted ignores compact requests followed only by failed summaries', () => {
+  const session = createSession();
+  const firstUser = messageService.createMessage({
+    content: [{ text: 'First prompt', type: 'text' }],
+    createdAt: '2026-05-10T00:00:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+  const failedRequest = messageService.createMessage({
+    content: [
+      {
+        auto: true,
+        reason: 'budget',
+        targetMessageId: firstUser.id,
+        type: 'compaction'
+      }
+    ],
+    createdAt: '2026-05-10T00:01:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+  const failedSummary = messageService.createMessage({
+    content: [
+      {
+        source: 'compaction',
+        text: 'Partial compact summary',
+        type: 'summary'
+      }
+    ],
+    createdAt: '2026-05-10T00:01:10.000Z',
+    role: 'assistant',
+    sessionId: session.id,
+    status: 'failed',
+    summary: true
+  });
+  const trailingUser = messageService.createMessage({
+    content: [{ text: 'Keep going', type: 'text' }],
+    createdAt: '2026-05-10T00:02:00.000Z',
+    role: 'user',
+    sessionId: session.id
+  });
+
+  const filtered = filterCompacted(messageService.listMessages(session.id));
+
+  assert.deepEqual(
+    filtered.map((message) => message.id),
+    [firstUser.id, failedRequest.id, failedSummary.id, trailingUser.id]
+  );
 });

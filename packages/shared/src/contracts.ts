@@ -50,3 +50,7 @@ export const cancelRunInputSchema = z.object({
 });
 
 export type CancelRunInput = z.infer<typeof cancelRunInputSchema>;
+
+export const manualCompactInputSchema = z.object({}).strict();
+
+export type ManualCompactInput = z.infer<typeof manualCompactInputSchema>;

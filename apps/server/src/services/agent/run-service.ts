@@ -145,6 +145,10 @@ export class AgentRunService {
     });
   }
 
+  getRun(runId: string) {
+    return agentRunRepository.getById(runId);
+  }
+
   pauseForApproval(input: {
     approval: ApprovalDto;
     checkpoint: SessionCheckpoint | string;

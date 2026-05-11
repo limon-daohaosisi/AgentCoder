@@ -64,5 +64,16 @@ export const fileSnapshotService = {
     }
 
     return null;
+  },
+
+  listRecentBySession(input: { limit: number; sessionId: string }) {
+    return artifactRepository
+      .listBySessionKind(input.sessionId, 'file_snapshot')
+      .filter((artifact) => isFileSnapshotPayload(artifact.payload))
+      .slice(0, input.limit)
+      .map((artifact) => ({
+        artifactId: artifact.id,
+        snapshot: artifact.payload as FileSnapshotArtifact
+      }));
   }
 };

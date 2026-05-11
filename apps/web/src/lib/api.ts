@@ -1,4 +1,5 @@
 import type {
+  AgentRunDto,
   CancelRunInput,
   CancelRunResponse,
   CreateSessionInput,
@@ -132,6 +133,22 @@ export function submitSessionMessage(
       method: 'POST'
     }
   );
+}
+
+export function manualCompact(sessionId: string) {
+  return fetchData<{
+    compacted: true;
+    postContextMessageId?: string;
+    requestMessageId: string;
+    run: AgentRunDto;
+    summaryMessageId: string;
+  }>(`/sessions/${sessionId}/compact`, {
+    body: JSON.stringify({}),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  });
 }
 
 export function cancelCurrentRun(

@@ -1,5 +1,6 @@
 import {
   cancelRunInputSchema,
+  manualCompactInputSchema,
   submitSessionMessageInputSchema
 } from '@opencode/shared';
 import { z } from 'zod';
@@ -7,6 +8,13 @@ import { z } from 'zod';
 export const AgentSchemas = {
   cancelCurrentRun: {
     json: cancelRunInputSchema,
+    param: z.object({
+      sessionId: z.string().trim().min(1)
+    })
+  },
+
+  manualCompact: {
+    json: manualCompactInputSchema,
     param: z.object({
       sessionId: z.string().trim().min(1)
     })

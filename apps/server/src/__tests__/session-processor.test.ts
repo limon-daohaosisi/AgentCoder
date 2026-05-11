@@ -233,6 +233,80 @@ test('SessionProcessor emits reasoning part events for reasoning deltas', async 
   );
 });
 
+test('SessionProcessor persists compaction summaries as summary messages during streaming', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              id: 'summary-1',
+              text: '<analysis>draft</analysis><summary>Current Objective\n- Continue</summary>',
+              type: 'text-delta'
+            },
+            {
+              finishReason: 'stop',
+              response: {
+                id: 'resp-summary',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-05-11T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 2,
+                totalTokens: 3
+              }
+            },
+            {
+              finishReason: 'stop',
+              totalUsage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 2,
+                totalTokens: 3
+              },
+              type: 'finish'
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn({
+    assistantMessage: {
+      summary: true,
+      summarySource: 'compaction'
+    },
+    request: createRequest(),
+    runId: run.id,
+    sessionId: session.id,
+    signal: new AbortController().signal,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  assert.deepEqual(result, {
+    finishReason: 'stop',
+    kind: 'completed'
+  });
+
+  const [message] = messageService.listMessages(session.id);
+
+  assert.equal(message?.summary, true);
+  assert.equal(message?.content[0]?.type, 'summary');
+  assert.equal(
+    message?.content[0]?.type === 'summary'
+      ? message.content[0].source
+      : undefined,
+    'compaction'
+  );
+});
+
 test('SessionProcessor persists auto tool calls without executing local tools', async () => {
   const session = createSession();
   const run = agentRunService.createRun({ sessionId: session.id });

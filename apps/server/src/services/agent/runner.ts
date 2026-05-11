@@ -83,6 +83,44 @@ export class SessionRunner {
       throw error;
     }
   }
+
+  async runExclusive<T, R>(
+    sessionId: string,
+    setup: () => Promise<{ ctx: T; runId: string }>,
+    run: (ctx: T, signal: AbortSignal) => Promise<R>
+  ): Promise<R> {
+    if (this.activeRuns.has(sessionId)) {
+      throw new ServiceError('Session already has an active run.', 409);
+    }
+
+    this.activeRuns.set(sessionId, {
+      kind: 'setup',
+      reservedAt: new Date().toISOString(),
+      sessionId
+    });
+
+    try {
+      const { ctx, runId } = await setup();
+      const controller = new AbortController();
+
+      this.activeRuns.set(sessionId, {
+        controller,
+        kind: 'active',
+        runId,
+        sessionId,
+        startedAt: new Date().toISOString()
+      });
+
+      try {
+        return await run(ctx, controller.signal);
+      } finally {
+        this.activeRuns.delete(sessionId);
+      }
+    } catch (error) {
+      this.activeRuns.delete(sessionId);
+      throw error;
+    }
+  }
 }
 
 export const sessionRunner = new SessionRunner();

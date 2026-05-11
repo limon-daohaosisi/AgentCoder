@@ -54,7 +54,22 @@ export {
   toToolPolicies
 } from './context/ai-sdk-tool-adapter.js';
 export { ContextSizeGuard } from './context/size-guard.js';
+export type {
+  BudgetAnalysis,
+  ContextSizeGuardConfig
+} from './context/size-guard.js';
 export { resolveTools } from './context/tool-registry.js';
+export {
+  COMPACTED_TOOL_PLACEHOLDER,
+  SessionCompaction
+} from './session-compaction.js';
+export type {
+  CompactionReason,
+  CompactOldToolOutputsResult,
+  RunAutoCompactionResult,
+  RunManualCompactionResult,
+  SessionCompactionDeps
+} from './session-compaction.js';
 export type * from './context/schema.js';
 export {
   applyPatchInputSchema,
