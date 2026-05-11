@@ -11,7 +11,6 @@ import { buildSessionCompactionDeps } from '../wiring/agent.js';
 const {
   buildSessionCheckpoint,
   environment,
-  sessionInteractionService,
   messageService,
   partService,
   sessionService,
