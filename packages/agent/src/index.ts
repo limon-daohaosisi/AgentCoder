@@ -20,6 +20,12 @@ export type {
   StreamModelResponse
 } from './model-client.js';
 export { normalizePrompt, SYSTEM_PROMPT } from './prompt.js';
+export { CORE_SYSTEM_PROMPT_SECTIONS } from './prompt/core-sections.js';
+export {
+  buildCompactionPrompt,
+  buildCompactionSystemOverlay,
+  buildPostCompactContextText
+} from './prompt/compact.js';
 export type { PromptInput } from './prompt.js';
 export { RunLoop } from './run-loop.js';
 export type { RunLoopDeps, RunLoopInput, RunLoopResult } from './run-loop.js';
@@ -59,6 +65,13 @@ export type {
   ContextSizeGuardConfig
 } from './context/size-guard.js';
 export { resolveTools } from './context/tool-registry.js';
+export { resolvePromptBundle } from './context/prompt-bundle.js';
+export {
+  buildCoreSystemBlock,
+  buildEnvironmentSystemBlock,
+  buildRuntimeInstructionBlocks,
+  buildSystemContext
+} from './context/system-context.js';
 export {
   COMPACTED_TOOL_PLACEHOLDER,
   SessionCompaction

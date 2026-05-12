@@ -136,6 +136,55 @@ function updatePartById(
   };
 }
 
+function applyDeltaSafely(input: {
+  delta: string;
+  part: MessagePart;
+  partMarker: EventMarker | undefined;
+  marker: EventMarker;
+}) {
+  const { delta, marker, part, partMarker } = input;
+
+  if (delta.length === 0) {
+    return part;
+  }
+
+  // If the base query already returned the latest persisted text for this part,
+  // a late-arriving SSE delta with the same updatedAt timestamp may represent
+  // content that is already included in `part.text`. In that case, avoid
+  // appending it again and only advance the event marker.
+  if (
+    partMarker &&
+    part.updatedAt === marker.createdAt &&
+    partMarker.createdAt === marker.createdAt &&
+    partMarker.sequenceNo === 0
+  ) {
+    if (
+      (part.type === 'text' || part.type === 'reasoning') &&
+      part.text.endsWith(delta)
+    ) {
+      return part;
+    }
+  }
+
+  if (part.type === 'text') {
+    return {
+      ...part,
+      text: part.text + delta,
+      updatedAt: marker.createdAt
+    };
+  }
+
+  if (part.type === 'reasoning') {
+    return {
+      ...part,
+      text: part.text + delta,
+      updatedAt: marker.createdAt
+    };
+  }
+
+  return part;
+}
+
 function projectEvent(
   messages: ProjectedMessage[],
   envelope: SessionEventEnvelope
@@ -240,20 +289,16 @@ function projectEvent(
       }
 
       const updatedMessage = updatePartById(existing, event.partId, (part) => {
-        if (event.field === 'text' && part.type === 'text') {
-          return {
-            ...part,
-            text: part.text + event.delta,
-            updatedAt: envelope.createdAt
-          };
-        }
-
-        if (event.field === 'reasoning.text' && part.type === 'reasoning') {
-          return {
-            ...part,
-            text: part.text + event.delta,
-            updatedAt: envelope.createdAt
-          };
+        if (
+          (event.field === 'text' && part.type === 'text') ||
+          (event.field === 'reasoning.text' && part.type === 'reasoning')
+        ) {
+          return applyDeltaSafely({
+            delta: event.delta,
+            marker,
+            part,
+            partMarker
+          });
         }
 
         return part;

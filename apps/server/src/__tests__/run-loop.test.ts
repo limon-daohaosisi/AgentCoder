@@ -8,6 +8,8 @@ import {
 } from '@opencode/agent';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { buildRunLoopDeps } from '../wiring/agent.js';
 
@@ -175,17 +177,29 @@ test('RunLoop does not call model when session is waiting approval', async () =>
 test('RunLoop auto compacts and continues when context needs full compaction', async () => {
   const session = createSessionWithUserMessage();
   const run = createPersistedRun(session.id);
+  writeFileSync(
+    path.join(environment.workspaceRoot, 'AGENTS.md'),
+    '# Workspace Memory\nKeep project constraints visible.\n'
+  );
   messageService.createMessage({
     content: [{ text: 'Prior assistant output', type: 'text' }],
     role: 'assistant',
     sessionId: session.id
   });
+  const compactSystems: string[] = [];
   let modelCalls = 0;
 
   const processor = {
     async processTurn(input: ProcessTurnInput) {
       modelCalls += 1;
 
+      assert.ok(
+        input.request.system.includes('<project-memory source="AGENTS.md"')
+      );
+      assert.ok(
+        input.request.system.includes('Keep project constraints visible.')
+      );
+      assert.equal(input.request.system.includes('Do not call tools.'), false);
       assert.ok(
         input.request.messages.some(
           (message) =>
@@ -215,38 +229,42 @@ test('RunLoop auto compacts and continues when context needs full compaction', a
     },
     createDeps(),
     createCompactionDeps({
-      streamModelResponse: (() => ({
-        fullStream: {
-          async *[Symbol.asyncIterator]() {
-            yield {
-              id: 'compact-summary-1',
-              text: '<analysis>draft</analysis><summary>Current Objective\n- Continue the task</summary>',
-              type: 'text-delta'
-            };
-            yield {
-              response: { id: 'compact-response-1' },
-              type: 'finish-step',
-              usage: {
-                inputTokenDetails: {},
-                inputTokens: 1,
-                outputTokenDetails: {},
-                outputTokens: 1,
-                totalTokens: 2
-              }
-            };
-            yield {
-              totalUsage: {
-                inputTokenDetails: {},
-                inputTokens: 1,
-                outputTokenDetails: {},
-                outputTokens: 1,
-                totalTokens: 2
-              },
-              type: 'finish'
-            };
+      streamModelResponse: ((request: Parameters<StreamModelResponse>[0]) => {
+        compactSystems.push(request.system);
+
+        return {
+          fullStream: {
+            async *[Symbol.asyncIterator]() {
+              yield {
+                id: 'compact-summary-1',
+                text: '<analysis>draft</analysis><summary>Current Objective\n- Continue the task</summary>',
+                type: 'text-delta'
+              };
+              yield {
+                response: { id: 'compact-response-1' },
+                type: 'finish-step',
+                usage: {
+                  inputTokenDetails: {},
+                  inputTokens: 1,
+                  outputTokenDetails: {},
+                  outputTokens: 1,
+                  totalTokens: 2
+                }
+              };
+              yield {
+                totalUsage: {
+                  inputTokenDetails: {},
+                  inputTokens: 1,
+                  outputTokenDetails: {},
+                  outputTokens: 1,
+                  totalTokens: 2
+                },
+                type: 'finish'
+              };
+            }
           }
-        }
-      })) as unknown as StreamModelResponse
+        };
+      }) as unknown as StreamModelResponse
     }),
     2
   );
@@ -276,6 +294,9 @@ test('RunLoop auto compacts and continues when context needs full compaction', a
 
   assert.deepEqual(result, { finishReason: 'stop', kind: 'completed' });
   assert.equal(modelCalls, 1);
+  assert.equal(compactSystems.length, 1);
+  assert.match(compactSystems[0] ?? '', /<project-memory source="AGENTS.md"/);
+  assert.match(compactSystems[0] ?? '', /Do not call tools\./);
   assert.ok(
     messageService
       .listMessages(session.id)

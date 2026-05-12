@@ -18,6 +18,11 @@ import type { StreamModelResponse } from './model-client.js';
 import type { ProcessorResult } from './session-processor.js';
 import type { FileSnapshotStoreLookup } from './tools/shared/file-snapshot.js';
 import { truncateText } from './tools/shared/truncation.js';
+import {
+  buildCompactionPrompt,
+  buildCompactionSystemOverlay,
+  buildPostCompactContextText
+} from './prompt/compact.js';
 
 export const COMPACTED_TOOL_PLACEHOLDER =
   '[Older tool result compacted. Review the durable transcript or rerun the tool if full details are needed.]';
@@ -232,56 +237,11 @@ function formatCompactSummary(text: string) {
 }
 
 function buildCompactionSystemPrompt(systemText: string) {
-  const compactInstruction = [
-    'You are compacting the durable transcript so the agent can continue the task.',
-    'Do not call tools.',
-    'If you need scratch space, keep it brief inside <analysis>. Put the final answer in <summary>.',
-    'Preserve only durable, execution-relevant facts needed for continuing the work.',
-    'Use these sections in order: Current Objective, Important Constraints, Relevant Files / Areas, Decisions Already Made, Outstanding Work, Tool Findings Worth Preserving, Open Risks / Unknowns.'
-  ].join('\n');
+  const compactInstruction = buildCompactionSystemOverlay();
 
   return systemText.length > 0
     ? `${systemText}\n\n${compactInstruction}`
     : compactInstruction;
-}
-
-function buildCompactionPrompt(input: {
-  preCompactTokenCount: number;
-  transcript: string;
-}) {
-  return [
-    'Compact the following transcript into a durable continuation summary.',
-    `Pre-compact estimated tokens: ${input.preCompactTokenCount}.`,
-    'Preserve the current objective, constraints, key files, already-made decisions, remaining work, and concrete tool findings worth keeping.',
-    'Do not include speculative filler or hidden chain-of-thought beyond a short disposable <analysis> block.',
-    '',
-    '<transcript>',
-    input.transcript,
-    '</transcript>'
-  ].join('\n');
-}
-
-function buildPostCompactContextText(input: {
-  recoveredReads: ReadRecovery[];
-  sessionStartBlocks: string[];
-}) {
-  const sections: string[] = [];
-
-  if (input.recoveredReads.length > 0) {
-    sections.push('Post-compact working set:');
-
-    for (const recovery of input.recoveredReads) {
-      sections.push(`Recovered recent read for ${recovery.filePath}:`);
-      sections.push(recovery.outputText);
-    }
-  }
-
-  if (input.sessionStartBlocks.length > 0) {
-    sections.push('Session start context:');
-    sections.push(...input.sessionStartBlocks);
-  }
-
-  return sections.join('\n\n').trim();
 }
 
 function buildVisibleTranscript(

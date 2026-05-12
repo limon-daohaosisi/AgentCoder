@@ -1,6 +1,8 @@
 import { SessionCompaction, type StreamModelResponse } from '@opencode/agent';
 import { SessionInteractionService } from '../services/agent/interaction-service.js';
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { beforeEach, test } from 'node:test';
 import type { MessagePart } from '@opencode/shared';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
@@ -536,4 +538,82 @@ test('manual compact skips restoring stale recent reads when a newer snapshot ex
     );
 
   assert.equal(postCompactMessage, undefined);
+});
+
+test('manual compact inherits workspace AGENTS.md in compact system prompt', async () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Manual compact should see project memory',
+    workspaceId: workspace.id
+  });
+
+  writeFileSync(
+    path.join(environment.workspaceRoot, 'AGENTS.md'),
+    '# Workspace Policy\nPreserve test constraints.\n'
+  );
+
+  messageService.createMessage({
+    content: [{ text: 'Summarize current progress', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+
+  const seenSystems: string[] = [];
+  const interactionService = new SessionInteractionService(
+    undefined,
+    undefined,
+    new SessionCompaction(
+      buildSessionCompactionDeps({
+        processTurn: undefined,
+        streamModelResponse: ((request: Parameters<StreamModelResponse>[0]) => {
+          seenSystems.push(request.system);
+
+          return {
+            fullStream: {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  id: 'compact-summary-with-memory',
+                  text: '<summary>Current Objective\n- Preserve constraints</summary>',
+                  type: 'text-delta'
+                };
+                yield {
+                  response: { id: 'compact-response-with-memory' },
+                  type: 'finish-step',
+                  usage: {
+                    inputTokenDetails: {},
+                    inputTokens: 1,
+                    outputTokenDetails: {},
+                    outputTokens: 1,
+                    totalTokens: 2
+                  }
+                };
+                yield {
+                  totalUsage: {
+                    inputTokenDetails: {},
+                    inputTokens: 1,
+                    outputTokenDetails: {},
+                    outputTokens: 1,
+                    totalTokens: 2
+                  },
+                  type: 'finish'
+                };
+              }
+            }
+          };
+        }) as unknown as StreamModelResponse
+      })
+    )
+  );
+
+  const result = await interactionService.manualCompact({
+    sessionId: session.id
+  });
+
+  assert.equal(result.compacted, true);
+  assert.equal(seenSystems.length, 1);
+  assert.match(seenSystems[0] ?? '', /<project-memory source="AGENTS.md"/);
+  assert.match(seenSystems[0] ?? '', /Preserve test constraints\./);
+  assert.match(seenSystems[0] ?? '', /Do not call tools\./);
 });

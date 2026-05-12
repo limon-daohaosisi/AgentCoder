@@ -1,16 +1,40 @@
 import type { MessageDto, MessagePart, SessionDto } from '@opencode/shared';
 import { DEFAULT_TOOL_OUTPUT_POLICY, toolByName } from '../tools/index.js';
-import { buildSystemContext } from './system-context.js';
+import { resolvePromptBundle } from './prompt-bundle.js';
+import {
+  buildCoreSystemBlock,
+  buildEnvironmentSystemBlock,
+  buildRuntimeInstructionBlocks
+} from './system-context.js';
 import type {
   BuiltContext,
   ContextBuildDebug,
   ContextMessage,
   ContextPart,
-  MessageWithParts
+  MessageWithParts,
+  PromptMemorySource
 } from './schema.js';
+
+function getPreviousUserRuntime(messages: MessageWithParts[]) {
+  const userMessages = messages.filter((message) => message.role === 'user');
+
+  if (userMessages.length < 2) {
+    return undefined;
+  }
+
+  return userMessages[userMessages.length - 2]?.runtime;
+}
 
 export type ContextBuilderDeps = {
   getSession(sessionId: string): SessionDto | null;
+  listPromptMemorySources?(input: {
+    agentName: string;
+    lastUserRuntime?: MessageWithParts['runtime'];
+    model: { modelId: string; providerId: string };
+    session: SessionDto;
+    sessionId: string;
+    workspaceRoot: string;
+  }): PromptMemorySource[];
   listMessages(sessionId: string): MessageWithParts[];
   repairDanglingToolPart?(input: {
     part: Extract<MessagePart, { type: 'tool' }>;
@@ -308,7 +332,8 @@ export class ContextBuilder {
 
     const model = lastUserMessage.model ?? defaultModel();
     const agentName = lastUserMessage.agentName ?? 'default';
-    const debug: ContextBuildDebug = { skippedParts: [] };
+    const previousUserRuntime = getPreviousUserRuntime(storedMessages);
+    const debug: ContextBuildDebug = { promptSources: [], skippedParts: [] };
     const messages = storedMessages
       .map((message) =>
         projectMessage(message, debug, {
@@ -317,13 +342,31 @@ export class ContextBuilder {
         })
       )
       .filter((message): message is ContextMessage => Boolean(message));
-    const system = buildSystemContext({
-      agentName,
-      lastUserRuntime: lastUserMessage.runtime,
-      model,
-      session,
-      workspaceRoot: input.workspaceRoot
+    const memorySources =
+      this.deps.listPromptMemorySources?.({
+        agentName,
+        lastUserRuntime: lastUserMessage.runtime,
+        model,
+        session,
+        sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot
+      }) ?? [];
+    const bundle = resolvePromptBundle({
+      coreBlock: buildCoreSystemBlock(),
+      environmentBlock: buildEnvironmentSystemBlock({
+        agentName,
+        model,
+        session,
+        workspaceRoot: input.workspaceRoot
+      }),
+      memorySources,
+      runtimeInstructionBlocks: buildRuntimeInstructionBlocks({
+        lastUserRuntime: lastUserMessage.runtime,
+        previousUserRuntime
+      })
     });
+    const system = bundle.systemBlocks;
+    debug.promptSources = bundle.debugSources;
     const systemText = system.map((block) => block.text).join('\n\n');
     const chars = countContextChars(messages, systemText);
 

@@ -22,6 +22,7 @@ import { sessionEventService } from '../services/session-events/event-service.js
 import { sessionService } from '../services/session/service.js';
 import { agentRunService } from '../services/agent/run-service.js';
 import { fileSnapshotService } from '../services/agent/file-snapshot-service.js';
+import { promptSourceService } from '../services/agent/prompt-source-service.js';
 import { toolStateService } from '../services/agent/tool-state-service.js';
 
 export function buildSessionProcessorDeps(
@@ -131,6 +132,8 @@ export function buildRunLoopDeps(
 ): RunLoopDeps {
   return {
     getSession: (sessionId) => sessionService.getSession(sessionId),
+    listPromptMemorySources: (input) =>
+      promptSourceService.listPromptMemorySources(input),
     listMessages: (sessionId) => messageService.listMessages(sessionId),
     modelFactory: createLanguageModel,
     repairDanglingToolPart: (input) => {

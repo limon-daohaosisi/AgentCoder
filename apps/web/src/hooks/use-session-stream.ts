@@ -39,6 +39,11 @@ function isCacheRelevantEvent(event: SessionEventEnvelope['event']) {
 
 function isMessageCacheRelevantEvent(event: SessionEventEnvelope['event']) {
   return (
+    event.type === 'message.created' ||
+    event.type === 'message.part.created' ||
+    event.type === 'message.part.updated' ||
+    event.type === 'message.completed' ||
+    event.type === 'message.cancelled' ||
     event.type === 'tool.pending' ||
     event.type === 'approval.created' ||
     event.type === 'approval.resolved' ||
