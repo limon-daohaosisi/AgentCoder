@@ -64,10 +64,30 @@ export type ContextMessage = {
 };
 
 export type ContextBuildDebug = {
+  promptSources: PromptSourceDebug[];
   skippedParts: Array<{
     partId: string;
     reason: string;
   }>;
+};
+
+export type PromptSourceDebug = {
+  kind: ContextSystemBlock['source'];
+  origin?: string;
+  sourceId: string;
+  truncated?: boolean;
+};
+
+export type PromptMemorySource = {
+  origin?: string;
+  sourceId: string;
+  text: string;
+  truncated?: boolean;
+};
+
+export type PromptBundle = {
+  debugSources: PromptSourceDebug[];
+  systemBlocks: ContextSystemBlock[];
 };
 
 export type ContextEstimate = {

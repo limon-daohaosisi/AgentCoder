@@ -7,9 +7,12 @@ import {
   toAiSdkMessages,
   toAiSdkToolSet,
   toToolPolicies,
+  type ContextBuildDebug,
   type ContextPart,
   type ResolvedTool
 } from '@opencode/agent';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
@@ -36,6 +39,13 @@ function createSession() {
 beforeEach(() => {
   resetTestDatabase();
 });
+
+function createEmptyDebug(): ContextBuildDebug {
+  return {
+    promptSources: [],
+    skippedParts: []
+  };
+}
 
 test('ContextBuilder and AI SDK adapter rebuild tool call/result context from parts', () => {
   const session = createSession();
@@ -82,6 +92,9 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
   const messages = toAiSdkMessages(context);
 
   assert.equal(context.lastUser.messageId, user.id);
+  assert.ok(
+    context.debug.promptSources.some((source) => source.kind === 'core')
+  );
   assert.deepEqual(messages, [
     {
       content: [{ text: 'Read src/index.ts', type: 'text' }],
@@ -232,7 +245,7 @@ test('AI SDK adapter applies tool-level json field visibility for builtin read',
 
 test('AI SDK adapter exposes attachments only when output policy allows them', () => {
   const messages = toAiSdkMessages({
-    debug: { skippedParts: [] },
+    debug: createEmptyDebug(),
     estimate: { chars: 0, tokens: 0 },
     lastUser: {
       agentName: 'opencode',
@@ -528,7 +541,7 @@ test('AI SDK adapter replaces compacted tool output with stable placeholder text
 
 test('AI SDK adapter preserves execution-denied output when policy requests it', () => {
   const messages = toAiSdkMessages({
-    debug: { skippedParts: [] },
+    debug: createEmptyDebug(),
     estimate: { chars: 0, tokens: 0 },
     lastUser: {
       agentName: 'opencode',
@@ -585,6 +598,184 @@ test('AI SDK adapter preserves execution-denied output when policy requests it',
     ],
     role: 'tool'
   });
+});
+
+test('ContextBuilder injects workspace AGENTS.md as project memory with debug sources', () => {
+  const session = createSession();
+  const agentsPath = path.join(environment.workspaceRoot, 'AGENTS.md');
+
+  writeFileSync(agentsPath, '# Workspace Rules\nUse pnpm.\n');
+  messageService.createMessage({
+    content: [{ text: 'Inspect project rules', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId),
+    listPromptMemorySources: ({ workspaceRoot }) => {
+      const filePath = path.join(workspaceRoot, 'AGENTS.md');
+      const text = readFileSync(filePath, 'utf8');
+
+      return [
+        {
+          origin: 'AGENTS.md',
+          sourceId: 'workspace_agents',
+          text: `<project-memory source="AGENTS.md" path="AGENTS.md">\n${text}</project-memory>`
+        }
+      ];
+    }
+  });
+  const context = builder.build({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  assert.equal(context.system[1]?.source, 'memory');
+  assert.match(context.system[1]?.text ?? '', /<project-memory/);
+  assert.match(context.system[1]?.text ?? '', /Use pnpm\./);
+  assert.deepEqual(
+    context.system.map((block) => block.source),
+    ['core', 'memory', 'environment']
+  );
+  assert.deepEqual(
+    context.debug.promptSources.map((source) => source.kind),
+    ['core', 'memory', 'environment']
+  );
+  assert.equal(context.debug.promptSources[1]?.origin, 'AGENTS.md');
+});
+
+test('ContextBuilder live-reads prompt memory sources across builds', () => {
+  const session = createSession();
+  const agentsPath = path.join(environment.workspaceRoot, 'AGENTS.md');
+
+  messageService.createMessage({
+    content: [{ text: 'Check latest project memory', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId),
+    listPromptMemorySources: ({ workspaceRoot }) => {
+      const text = readFileSync(path.join(workspaceRoot, 'AGENTS.md'), 'utf8');
+
+      return [
+        {
+          origin: 'AGENTS.md',
+          sourceId: 'workspace_agents',
+          text
+        }
+      ];
+    }
+  });
+
+  writeFileSync(agentsPath, 'Version one\n');
+  const first = builder.build({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  writeFileSync(agentsPath, 'Version two\n');
+  const second = builder.build({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  assert.match(first.system[1]?.text ?? '', /Version one/);
+  assert.match(second.system[1]?.text ?? '', /Version two/);
+});
+
+test('ContextBuilder emits plan to build transition reminder from prior user runtime', () => {
+  const session = createSession();
+
+  messageService.createMessage({
+    content: [{ text: 'Plan the change', type: 'text' }],
+    role: 'user',
+    runtime: { variant: 'plan' },
+    sessionId: session.id
+  });
+  messageService.createMessage({
+    content: [{ text: 'Here is the plan.', type: 'text' }],
+    role: 'assistant',
+    sessionId: session.id
+  });
+  messageService.createMessage({
+    content: [{ text: 'Implement it now', type: 'text' }],
+    role: 'user',
+    runtime: { variant: 'build' },
+    sessionId: session.id
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId)
+  });
+  const context = builder.build({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+  const instructionBlock = context.system.find(
+    (block) => block.source === 'instruction'
+  );
+
+  assert.match(
+    instructionBlock?.text ?? '',
+    /Your operational mode has changed from plan to build\./
+  );
+  assert.match(
+    instructionBlock?.text ?? '',
+    /You are no longer in read-only mode\./
+  );
+  assert.match(
+    instructionBlock?.text ?? '',
+    /utilize your arsenal of tools as needed\./
+  );
+});
+
+test('ContextBuilder emits strict JSON schema format overlay', () => {
+  const session = createSession();
+
+  messageService.createMessage({
+    content: [{ text: 'Return structured output', type: 'text' }],
+    role: 'user',
+    runtime: {
+      format: {
+        schema: {
+          properties: { ok: { type: 'boolean' } },
+          required: ['ok'],
+          type: 'object'
+        },
+        type: 'json_schema'
+      }
+    },
+    sessionId: session.id
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId)
+  });
+  const context = builder.build({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+  const formatBlock = context.system.find((block) => block.source === 'format');
+
+  assert.match(
+    formatBlock?.text ?? '',
+    /You must respond with JSON matching this schema exactly:/
+  );
+  assert.match(
+    formatBlock?.text ?? '',
+    /Do not wrap the JSON in Markdown fences\./
+  );
+  assert.match(
+    formatBlock?.text ?? '',
+    /Do not add explanatory text before or after the JSON\./
+  );
 });
 
 test('filterCompacted keeps only the latest successful compact suffix', () => {

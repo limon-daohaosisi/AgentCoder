@@ -1,3 +1,5 @@
+import { existsSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import { createServerTestEnvironment } from './server-test-helpers.js';
 
 const environment = createServerTestEnvironment('opencode-server-db-test-');
@@ -80,4 +82,10 @@ export const dbTestContext = {
 
 export function resetTestDatabase() {
   sqlite.exec('DELETE FROM workspaces;');
+
+  const agentsPath = path.join(environment.workspaceRoot, 'AGENTS.md');
+
+  if (existsSync(agentsPath)) {
+    rmSync(agentsPath, { force: true });
+  }
 }
