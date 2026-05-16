@@ -77,7 +77,8 @@ export function resolveApprovalMode(input: {
   context: ToolExecutionContext;
   isCurrentPlanFile: boolean;
 }) {
-  return input.context.planContext?.variant === 'plan' && input.isCurrentPlanFile
+  return input.context.planContext?.variant === 'plan' &&
+    input.isCurrentPlanFile
     ? 'never'
     : 'required';
 }

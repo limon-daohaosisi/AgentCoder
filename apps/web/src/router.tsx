@@ -106,8 +106,8 @@ function HomePage() {
         </h1>
         <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
           现在可以直接创建 workspace、查看已有 session、进入真实的文件树与
-          session
-          current-state。任务板已经开始消费真实 plan/task 数据，时间线和审批详情会在后续阶段继续补齐更多真实内容。
+          session current-state。任务板已经开始消费真实 plan/task
+          数据，时间线和审批详情会在后续阶段继续补齐更多真实内容。
         </p>
 
         <form
@@ -226,7 +226,8 @@ function EmptyWorkspaceState() {
 function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [composerVariant, setComposerVariant] = useState<SessionVariant>('plan');
+  const [composerVariant, setComposerVariant] =
+    useState<SessionVariant>('plan');
   const stream = useSessionStream(props.sessionId, props.workspaceId);
   const workspaceListQuery = useQuery({
     queryFn: listWorkspaces,

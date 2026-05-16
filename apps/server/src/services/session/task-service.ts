@@ -117,9 +117,8 @@ export const taskService = {
 
       assertPlanMode(variant);
 
-      const { plan, session: updatedSession } = planService.getOrCreateCurrentPlan(
-        input.sessionId
-      );
+      const { plan, session: updatedSession } =
+        planService.getOrCreateCurrentPlan(input.sessionId);
       const position =
         input.position ?? taskRepository.getNextPositionForPlan(plan.id);
       const now = new Date().toISOString();
@@ -176,7 +175,10 @@ export const taskService = {
     return taskRepository.listByPlan(planId);
   },
 
-  listTasksForSession(sessionId: string): { currentTaskId?: string; tasks: TaskDto[] } {
+  listTasksForSession(sessionId: string): {
+    currentTaskId?: string;
+    tasks: TaskDto[];
+  } {
     const { plan, session } = planService.getOrCreateCurrentPlan(sessionId);
     return {
       currentTaskId: session.currentTaskId,

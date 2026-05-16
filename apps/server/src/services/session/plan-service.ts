@@ -46,7 +46,10 @@ function withFilePath(plan: PlanDto): PlanDto {
   return planFileService.buildPlanDto(plan);
 }
 
-function createCurrentPlan(session: SessionDto, now: string): CurrentPlanContext {
+function createCurrentPlan(
+  session: SessionDto,
+  now: string
+): CurrentPlanContext {
   const plan = planRepository.create({
     confirmedAt: null,
     createdAt: now,
@@ -82,12 +85,12 @@ export const planService = {
     if (session.currentPlanId) {
       const currentPlan = planRepository.getById(session.currentPlanId);
 
-        if (currentPlan && currentPlan.sessionId === session.id) {
-          return {
-            plan: withFilePath(currentPlan),
-            session
-          };
-        }
+      if (currentPlan && currentPlan.sessionId === session.id) {
+        return {
+          plan: withFilePath(currentPlan),
+          session
+        };
+      }
     }
 
     return Database.transaction(() => {

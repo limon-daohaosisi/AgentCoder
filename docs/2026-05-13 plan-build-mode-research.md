@@ -8,13 +8,13 @@
 
 最重要的结论先说：
 
-| 主题 | `../opencode` | `../claude-code` | 对当前仓库的启发 |
-| --- | --- | --- | --- |
-| 核心建模 | `plan/build` 是内建 primary agent | 没有单独的 `build` mode，只有 permission mode 里的 `plan`；实现阶段只是离开 `plan` 后回到其他权限模式 | 当前仓库更适合先把 `plan/build` 落在 `message.runtime.variant`，而不是先造完整 agent registry 或复杂 permission state machine |
-| 约束方式 | agent permission + synthetic reminder + 可选 `plan_exit` 工具 | permission mode + Enter/ExitPlanMode tool + plan file + approval UI + `prePlanMode` 恢复 | 当前仓库不能只加 prompt overlay，必须让 `resolveTools()` 真正受 mode 影响 |
-| 切换入口 | `default_agent`、CLI/TUI agent picker、API `agent` 参数 | `/plan` 命令、Shift+Tab mode cycle、SDK `set_permission_mode`、Enter/ExitPlanMode tool | 当前仓库首版最小入口可以是 API `variant` 参数 + Web UI 模式切换 |
-| 计划审批 | `plan_exit` 在实验模式下触发“切回 build”的确认 | `ExitPlanMode` 是正式工作流，读取 plan file，并在批准后恢复到实现模式 | 当前仓库已有完整 approval/resume 主链路，后续很适合新增一个虚拟工具式的 `exit_plan_mode` |
-| plan artifact | 有实验性 plan file 工作流 | 有正式 plan file，且是 plan mode 的中心工件 | 当前仓库首版不必先上 plan file，可以先让计划以 assistant 文本产出，后续再补 durable artifact |
+| 主题          | `../opencode`                                                 | `../claude-code`                                                                                      | 对当前仓库的启发                                                                                                              |
+| ------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 核心建模      | `plan/build` 是内建 primary agent                             | 没有单独的 `build` mode，只有 permission mode 里的 `plan`；实现阶段只是离开 `plan` 后回到其他权限模式 | 当前仓库更适合先把 `plan/build` 落在 `message.runtime.variant`，而不是先造完整 agent registry 或复杂 permission state machine |
+| 约束方式      | agent permission + synthetic reminder + 可选 `plan_exit` 工具 | permission mode + Enter/ExitPlanMode tool + plan file + approval UI + `prePlanMode` 恢复              | 当前仓库不能只加 prompt overlay，必须让 `resolveTools()` 真正受 mode 影响                                                     |
+| 切换入口      | `default_agent`、CLI/TUI agent picker、API `agent` 参数       | `/plan` 命令、Shift+Tab mode cycle、SDK `set_permission_mode`、Enter/ExitPlanMode tool                | 当前仓库首版最小入口可以是 API `variant` 参数 + Web UI 模式切换                                                               |
+| 计划审批      | `plan_exit` 在实验模式下触发“切回 build”的确认                | `ExitPlanMode` 是正式工作流，读取 plan file，并在批准后恢复到实现模式                                 | 当前仓库已有完整 approval/resume 主链路，后续很适合新增一个虚拟工具式的 `exit_plan_mode`                                      |
+| plan artifact | 有实验性 plan file 工作流                                     | 有正式 plan file，且是 plan mode 的中心工件                                                           | 当前仓库首版不必先上 plan file，可以先让计划以 assistant 文本产出，后续再补 durable artifact                                  |
 
 我对当前仓库的总体判断：
 

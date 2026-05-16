@@ -86,7 +86,9 @@ test('taskService.updateTask enforces plan/build field restrictions and currentT
 
   assert.equal(updatedPlanTask.status, 'running');
   assert.equal(updatedPlanTask.title, 'Refined task');
-  assert.deepEqual(updatedPlanTask.acceptanceCriteria, ['Updated in plan mode']);
+  assert.deepEqual(updatedPlanTask.acceptanceCriteria, [
+    'Updated in plan mode'
+  ]);
   assert.equal(updatedPlanTask.summaryText, 'Planning in progress');
   assert.equal(
     sessionService.getSession(planSession.id)?.currentTaskId,
@@ -122,7 +124,10 @@ test('taskService.updateTask enforces plan/build field restrictions and currentT
   });
 
   assert.equal(runningTask.status, 'running');
-  assert.equal(sessionService.getSession(buildSession.id)?.currentTaskId, buildTask.id);
+  assert.equal(
+    sessionService.getSession(buildSession.id)?.currentTaskId,
+    buildTask.id
+  );
 
   const doneTask = taskService.updateTask({
     completedAt: '2026-05-13T12:10:00.000Z',
@@ -133,7 +138,10 @@ test('taskService.updateTask enforces plan/build field restrictions and currentT
   });
 
   assert.equal(doneTask.status, 'done');
-  assert.equal(sessionService.getSession(buildSession.id)?.currentTaskId, undefined);
+  assert.equal(
+    sessionService.getSession(buildSession.id)?.currentTaskId,
+    undefined
+  );
 });
 
 test('taskService.stopTask blocks the task and clears currentTaskId', () => {

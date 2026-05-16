@@ -42,21 +42,28 @@ function buildToolServices() {
     }) => fileSnapshotService.getLatestForPath(snapshotInput),
     getSessionPlanContext: (planContextInput: { sessionId: string }) =>
       Promise.resolve({
-        filePath:
-          planService.getOrCreateCurrentPlan(planContextInput.sessionId).plan.filePath,
-        variant: taskService.getCurrentTaskContext(planContextInput.sessionId).variant
+        filePath: planService.getOrCreateCurrentPlan(planContextInput.sessionId)
+          .plan.filePath,
+        variant: taskService.getCurrentTaskContext(planContextInput.sessionId)
+          .variant
       }),
     getSessionPlanApprovalPayload: (input: {
       sessionId: string;
       summary?: string;
     }) => planService.buildPlanExitApprovalPayload(input),
     getSessionTaskContext: (taskContextInput: { sessionId: string }) =>
-      Promise.resolve(taskService.getCurrentTaskContext(taskContextInput.sessionId)),
+      Promise.resolve(
+        taskService.getCurrentTaskContext(taskContextInput.sessionId)
+      ),
     taskCreate: (taskInput: Parameters<typeof taskService.createTask>[0]) =>
       Promise.resolve(taskService.createTask(taskInput)),
-    taskGet: (taskInput: Parameters<typeof taskService.getTaskForSession>[0] extends never
-      ? never
-      : { sessionId: string; taskId: string }) =>
+    taskGet: (
+      taskInput: Parameters<
+        typeof taskService.getTaskForSession
+      >[0] extends never
+        ? never
+        : { sessionId: string; taskId: string }
+    ) =>
       Promise.resolve(
         taskService.getTaskForSession(taskInput.sessionId, taskInput.taskId)
       ),
@@ -76,7 +83,8 @@ export function buildSessionProcessorDeps(
     appendMessagePart: (input) => messagePartService.appendPart(input),
     appendSessionEvent: (event) => sessionEventService.append(event),
     createMessage: (input) => messageService.createMessage(input),
-    getCurrentTaskContext: (sessionId) => taskService.getCurrentTaskContext(sessionId),
+    getCurrentTaskContext: (sessionId) =>
+      taskService.getCurrentTaskContext(sessionId),
     createToolPartWithToolCall: (input) =>
       toolStateService.createToolPartWithToolCall(input),
     persist: (callback) => Database.transaction(callback),

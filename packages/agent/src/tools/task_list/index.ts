@@ -27,12 +27,15 @@ export const taskListToolDefinition: ToolDefinition<
       throw new Error('task_list service is not configured.');
     }
 
-    const result = await context.services.taskList({ sessionId: context.sessionId });
+    const result = await context.services.taskList({
+      sessionId: context.sessionId
+    });
     return result;
   },
   present({ output }) {
     const lines = output.tasks.map(
-      (task) => `- ${String(task.id)} [${String(task.status)}] ${String(task.title)}`
+      (task) =>
+        `- ${String(task.id)} [${String(task.status)}] ${String(task.title)}`
     );
 
     return {

@@ -607,7 +607,9 @@ test('SessionProcessor auto-executes current plan file edits and still attaches 
   const [assistantMessage] = messageService
     .listMessages(session.id)
     .filter((message) => message.role === 'assistant');
-  const toolPart = assistantMessage?.content.find((part) => part.type === 'tool');
+  const toolPart = assistantMessage?.content.find(
+    (part) => part.type === 'tool'
+  );
   const persistedToolCall =
     toolPart?.type === 'tool'
       ? toolCallRepository.getById(toolPart.toolCallId)

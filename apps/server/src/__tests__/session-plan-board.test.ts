@@ -176,7 +176,12 @@ test('GET /api/sessions/:sessionId/plan-board returns ordered tasks and approval
     currentPlan?: { id: string; sessionId: string };
     currentTask?: { id: string; status: string };
     session: { currentPlanId?: string; currentTaskId?: string; id: string };
-    tasks: Array<{ id: string; position: number; status: string; title: string }>;
+    tasks: Array<{
+      id: string;
+      position: number;
+      status: string;
+      title: string;
+    }>;
     waitingApprovalTaskIds: string[];
   }>(response);
 
@@ -193,7 +198,9 @@ test('GET /api/sessions/:sessionId/plan-board returns ordered tasks and approval
 });
 
 test('GET /api/sessions/:sessionId/plan-board returns 404 for missing sessions', async () => {
-  const response = await app.request('/api/sessions/missing-session/plan-board');
+  const response = await app.request(
+    '/api/sessions/missing-session/plan-board'
+  );
 
   assert.equal(response.status, 404);
   assert.equal(

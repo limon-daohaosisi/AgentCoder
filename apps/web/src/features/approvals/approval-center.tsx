@@ -70,7 +70,11 @@ export function ApprovalCenter({ approvals, onResolved }: ApprovalCenterProps) {
   );
 }
 
-function PlanExitApprovalBody({ payload }: { payload: PlanExitApprovalPayload }) {
+function PlanExitApprovalBody({
+  payload
+}: {
+  payload: PlanExitApprovalPayload;
+}) {
   return (
     <div className="mt-3 space-y-3">
       <div className="rounded-2xl bg-white/70 px-3 py-2 text-xs text-amber-950">

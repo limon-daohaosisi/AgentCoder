@@ -62,10 +62,7 @@ export const artifacts = sqliteTable(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'sessions_check_10',
-      sql`default_variant IN ('plan', 'build'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
       sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`

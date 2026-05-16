@@ -385,7 +385,7 @@ plan_exit
 approval kind 首版可复用现有 approval 框架中的新 kind，例如：
 
 ```ts
-'plan_exit'
+'plan_exit';
 ```
 
 若不想在首版扩张 approval kind，也可用更通用 payload，但推荐直接建新 kind，语义更清晰。
@@ -577,9 +577,12 @@ approval kind 首版可复用现有 approval 框架中的新 kind，例如：
 9. `apps/server/src/services/agent/run-service.ts`
    - 新 approval kind 支持
 10. `apps/web/src/features/tasks/task-board.tsx`
-   - 展示完整 plan file 与 file path
+
+- 展示完整 plan file 与 file path
+
 11. `apps/web/src/features/approvals/*`
-   - `plan_exit` payload 展示
+
+- `plan_exit` payload 展示
 
 ## 10. 验证建议
 

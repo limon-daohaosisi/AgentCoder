@@ -627,7 +627,9 @@ export class SessionProcessor {
       toolName,
       workspaceRoot: input.workspaceRoot
     });
-    const currentTaskId = this.deps.getCurrentTaskContext?.(input.sessionId)?.currentTaskId;
+    const currentTaskId = this.deps.getCurrentTaskContext?.(
+      input.sessionId
+    )?.currentTaskId;
     const toolPart: Extract<MessagePart, { type: 'tool' }> = {
       createdAt: now,
       id: partId,
@@ -886,7 +888,8 @@ export class SessionProcessor {
     }
 
     const message = this.persist(() => {
-      const currentTaskId = this.deps.getCurrentTaskContext?.(sessionId)?.currentTaskId;
+      const currentTaskId =
+        this.deps.getCurrentTaskContext?.(sessionId)?.currentTaskId;
       const created = this.deps.createMessage({
         content: [],
         model: input?.request
@@ -1002,6 +1005,8 @@ export class SessionProcessor {
     toolName: ToolName;
     workspaceRoot: string;
   }) {
-    return (this.deps.resolveToolApprovalMode ?? resolveToolApprovalMode)(input);
+    return (this.deps.resolveToolApprovalMode ?? resolveToolApprovalMode)(
+      input
+    );
   }
 }

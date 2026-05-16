@@ -111,8 +111,7 @@ function resolveCurrentTask(board?: SessionPlanBoardDto) {
   return (
     board.currentTask ??
     board.tasks.find(
-      (task) =>
-        task.status === 'running' || task.status === 'waiting_approval'
+      (task) => task.status === 'running' || task.status === 'waiting_approval'
     ) ??
     board.tasks.find((task) => task.status === 'ready') ??
     board.tasks[0]
@@ -157,7 +156,9 @@ function TaskCard({
       </div>
 
       {task.description ? (
-        <p className="mt-3 text-sm leading-6 text-slate-700">{task.description}</p>
+        <p className="mt-3 text-sm leading-6 text-slate-700">
+          {task.description}
+        </p>
       ) : null}
 
       <div className="mt-4 rounded-2xl bg-white/80 px-4 py-3 text-sm text-slate-700">
@@ -219,7 +220,9 @@ export function TaskBoard({
   const approvalCountByTaskId = buildApprovalCountByTaskId(
     board?.waitingApprovalTaskIds ?? []
   );
-  const completedTaskCount = tasks.filter((task) => task.status === 'done').length;
+  const completedTaskCount = tasks.filter(
+    (task) => task.status === 'done'
+  ).length;
   const planContent = planFile?.content?.trim()
     ? planFile.content
     : isLoading
@@ -233,7 +236,9 @@ export function TaskBoard({
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
             {getPhaseLabel(session.status)}
           </p>
-          <h2 className="mt-1 text-xl font-semibold text-ink">{session.title}</h2>
+          <h2 className="mt-1 text-xl font-semibold text-ink">
+            {session.title}
+          </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             {session.goalText}
           </p>
@@ -288,7 +293,9 @@ export function TaskBoard({
               当前 Plan File
             </p>
             <p className="mt-2 break-all rounded-2xl bg-white/80 px-3 py-2 text-xs text-slate-500">
-              {planFile?.filePath ?? board?.currentPlan?.filePath ?? '尚未生成路径'}
+              {planFile?.filePath ??
+                board?.currentPlan?.filePath ??
+                '尚未生成路径'}
             </p>
             <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-2xl bg-white/80 px-4 py-3 text-sm leading-6 text-slate-700">
               {planContent}

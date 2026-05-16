@@ -256,7 +256,14 @@ export type TaskDto = {
   title: string;
   description?: string;
   acceptanceCriteria: string[];
-  status: 'todo' | 'ready' | 'running' | 'blocked' | 'waiting_approval' | 'done' | 'failed';
+  status:
+    | 'todo'
+    | 'ready'
+    | 'running'
+    | 'blocked'
+    | 'waiting_approval'
+    | 'done'
+    | 'failed';
   summaryText?: string;
   lastErrorText?: string;
   startedAt?: string;
@@ -447,7 +454,7 @@ prompt: `Use this tool to create a structured task in the current session's task
 #### `TaskList` 建议提示词
 
 ```ts
-description: 'List all tasks in the current session plan'
+description: 'List all tasks in the current session plan';
 
 prompt: `Use this tool to list all tasks in the current session plan.
 
@@ -467,13 +474,13 @@ Returns a summary of each task, including:
 - summaryText
 - lastErrorText
 
-Use TaskGet with a specific task ID when you need the full description and acceptance criteria.`
+Use TaskGet with a specific task ID when you need the full description and acceptance criteria.`;
 ```
 
 #### `TaskGet` 建议提示词
 
 ```ts
-description: 'Get a task by ID from the current session plan'
+description: 'Get a task by ID from the current session plan';
 
 prompt: `Use this tool to retrieve a task by its ID from the current session plan.
 
@@ -493,7 +500,7 @@ Returns full task details, including:
 - summaryText
 - lastErrorText
 
-Use TaskList to see the full board in summary form.`
+Use TaskList to see the full board in summary form.`;
 ```
 
 #### `TaskUpdate` 建议提示词

@@ -387,7 +387,8 @@ export class SessionInteractionService {
                 })
               : null;
           const completedPlanExitUpdate =
-            input.decision === 'approved' && updatedApproval.kind === 'plan_exit'
+            input.decision === 'approved' &&
+            updatedApproval.kind === 'plan_exit'
               ? toolStateService.updateToolPartWithToolCall({
                   part: {
                     ...resume.part,
@@ -396,12 +397,15 @@ export class SessionInteractionService {
                       input: resume.part.state.input,
                       metadata: {
                         approvalId: updatedApproval.id,
-                        planFilePath: (updatedApproval.payload as PlanExitApprovalPayload)
-                          .planFilePath,
-                        planId: (updatedApproval.payload as PlanExitApprovalPayload)
-                          .planId
+                        planFilePath: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planFilePath,
+                        planId: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planId
                       },
-                      outputText: 'Plan approved. Exiting planning mode and starting build mode.',
+                      outputText:
+                        'Plan approved. Exiting planning mode and starting build mode.',
                       payload: { ok: true, planExitApproved: true },
                       startedAt: now,
                       status: 'completed'
@@ -418,16 +422,19 @@ export class SessionInteractionService {
               : null;
 
           const planExitMessage =
-            input.decision === 'approved' && updatedApproval.kind === 'plan_exit'
+            input.decision === 'approved' &&
+            updatedApproval.kind === 'plan_exit'
               ? messageService.createMessage({
                   content: [
                     {
                       metadata: {
                         approvalId: updatedApproval.id,
-                        planFilePath: (updatedApproval.payload as PlanExitApprovalPayload)
-                          .planFilePath,
-                        planId: (updatedApproval.payload as PlanExitApprovalPayload)
-                          .planId
+                        planFilePath: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planFilePath,
+                        planId: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planId
                       },
                       synthetic: true,
                       text: 'The plan has been approved. Begin implementation according to the current plan file and task list.',

@@ -1,6 +1,10 @@
 import { sessions } from '@opencode/orm';
 import type { NewSession, SessionRow } from '@opencode/orm';
-import type { SessionDto, SessionStatus, SessionVariant } from '@opencode/shared';
+import type {
+  SessionDto,
+  SessionStatus,
+  SessionVariant
+} from '@opencode/shared';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { Database } from '../db/runtime.js';
 

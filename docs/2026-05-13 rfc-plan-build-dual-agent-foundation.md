@@ -212,7 +212,7 @@ defaultVariant?: 'plan' | 'build'
 2. `SubmitSessionMessageInput` 增加：
 
 ```ts
-variant: 'plan' | 'build'
+variant: 'plan' | 'build';
 ```
 
 3. 新建 session 时若未指定 `defaultVariant`，默认使用 `plan`。

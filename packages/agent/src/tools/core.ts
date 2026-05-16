@@ -78,9 +78,7 @@ export type ToolServices = {
     requireFullRead?: boolean;
     sessionId: string;
   }): Promise<FileSnapshotStoreLookup | null>;
-  getSessionTaskContext?(input: {
-    sessionId: string;
-  }): Promise<{
+  getSessionTaskContext?(input: { sessionId: string }): Promise<{
     currentPlanId?: string;
     currentTaskId?: string;
     variant: 'build' | 'plan';
@@ -101,10 +99,11 @@ export type ToolServices = {
     status?: 'ready' | 'todo';
     title: string;
   }): Promise<TaskDto>;
-  taskGet?(input: { sessionId: string; taskId: string }): Promise<TaskDto | null>;
-  taskList?(input: {
+  taskGet?(input: {
     sessionId: string;
-  }): Promise<{
+    taskId: string;
+  }): Promise<TaskDto | null>;
+  taskList?(input: { sessionId: string }): Promise<{
     currentTaskId?: string;
     tasks: TaskDto[];
   }>;
@@ -219,7 +218,7 @@ export async function buildToolExecutionContext(input: {
         input.services?.createFileSnapshot ?? noOpFileSnapshotStore.create,
       getLatestForPath:
         input.services?.getLatestFileSnapshot ??
-          noOpFileSnapshotStore.getLatestForPath
+        noOpFileSnapshotStore.getLatestForPath
     },
     now: input.now ?? (() => new Date().toISOString()),
     planContext,
