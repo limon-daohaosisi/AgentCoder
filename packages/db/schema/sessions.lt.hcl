@@ -21,6 +21,12 @@ table "sessions" {
     null = false
   }
 
+  column "default_variant" {
+    type    = text
+    null    = false
+    default = sql("'plan'")
+  }
+
   column "status" {
     type    = text
     null    = false
@@ -74,6 +80,10 @@ table "sessions" {
 
   check "sessions_valid_status" {
     expr = "status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived')"
+  }
+
+  check "sessions_valid_default_variant" {
+    expr = "default_variant IN ('plan', 'build')"
   }
 
   index "idx_sessions_workspace_updated_at" {

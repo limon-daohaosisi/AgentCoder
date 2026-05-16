@@ -27,3 +27,9 @@ export type NewToolCall = InferInsertModel<typeof schema.toolCalls>;
 
 export type ApprovalRow = InferSelectModel<typeof schema.approvals>;
 export type NewApproval = InferInsertModel<typeof schema.approvals>;
+
+export type PlanRow = InferSelectModel<typeof schema.plans>;
+export type NewPlan = InferInsertModel<typeof schema.plans>;
+
+export type TaskRow = InferSelectModel<typeof schema.tasks>;
+export type NewTask = InferInsertModel<typeof schema.tasks>;

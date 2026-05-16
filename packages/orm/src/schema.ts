@@ -63,23 +63,27 @@ export const artifacts = sqliteTable(
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
     check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
+      'sessions_check_10',
+      sql`default_variant IN ('plan', 'build'`
     ),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -132,7 +136,7 @@ export const plans = sqliteTable(
     ),
     check(
       'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'approvals_check_11',
@@ -141,7 +145,7 @@ export const plans = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_14',
@@ -161,7 +165,6 @@ export const tasks = sqliteTable(
     planId: text('plan_id')
       .notNull()
       .references(() => plans.id, { onDelete: 'cascade' }),
-    parentTaskId: text('parent_task_id'),
     position: integer().notNull(),
     title: text().notNull(),
     description: text(),
@@ -179,11 +182,6 @@ export const tasks = sqliteTable(
     index('idx_tasks_session_status').on(table.sessionId, table.status),
     index('idx_tasks_session_position').on(table.sessionId, table.position),
     uniqueIndex('tasks_plan_position_idx').on(table.planId, table.position),
-    foreignKey(() => ({
-      columns: [table.parentTaskId],
-      foreignColumns: [table.id],
-      name: 'tasks_parent_task_id_tasks_id_fk'
-    })).onDelete('cascade'),
     check(
       'artifacts_check_1',
       sql`kind IN ('diff', 'stdout', 'stderr', 'error', 'file_snapshot', 'plan_summary', 'task_summary', 'final_result'`
@@ -225,7 +223,7 @@ export const tasks = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -289,7 +287,7 @@ export const workspaces = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -377,7 +375,7 @@ export const sessionEvents = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -467,7 +465,7 @@ export const messages = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -549,7 +547,7 @@ export const messageParts = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -627,7 +625,7 @@ export const agentRuns = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -646,6 +644,7 @@ export const sessions = sqliteTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     title: text().notNull(),
     goalText: text('goal_text').notNull(),
+    defaultVariant: text('default_variant').default('plan').notNull(),
     status: text().default('planning').notNull(),
     currentPlanId: text('current_plan_id'),
     currentTaskId: text('current_task_id'),
@@ -702,7 +701,7 @@ export const sessions = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',
@@ -787,7 +786,7 @@ export const approvals = sqliteTable(
     check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
     ),
     check(
       'tool_calls_check_14',

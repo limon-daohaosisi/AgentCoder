@@ -1,4 +1,8 @@
-import type { AgentRunStatus, SessionStatus } from './contracts.js';
+import type {
+  AgentRunStatus,
+  SessionStatus,
+  SessionVariant
+} from './contracts.js';
 
 export type ToolCallStatus =
   | 'pending'
@@ -10,19 +14,41 @@ export type ToolCallStatus =
   | 'failed';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
+export type TaskStatus =
+  | 'todo'
+  | 'ready'
+  | 'running'
+  | 'blocked'
+  | 'waiting_approval'
+  | 'done'
+  | 'failed';
+
 export type ToolName =
   | 'apply_patch'
   | 'bash'
   | 'edit'
   | 'glob'
   | 'grep'
+  | 'plan_exit'
   | 'read'
+  | 'task_create'
+  | 'task_get'
+  | 'task_list'
+  | 'task_stop'
+  | 'task_update'
   | 'write';
 
 export type ApprovalKind = Extract<
   ToolName,
-  'apply_patch' | 'bash' | 'edit' | 'write'
+  'apply_patch' | 'bash' | 'edit' | 'plan_exit' | 'write'
 >;
+
+export type PlanExitApprovalPayload = {
+  planContent: string;
+  planFilePath: string;
+  planId: string;
+  summary?: string;
+};
 
 export type MessageRole = 'user' | 'assistant';
 export type MessageStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -33,7 +59,7 @@ export type MessageRuntimeMetadata = {
     | { schema: Record<string, unknown>; type: 'json_schema' };
   toolOverrides?: Partial<Record<ToolName, boolean>>;
   userSystem?: string;
-  variant?: string;
+  variant?: SessionVariant;
 };
 
 export type FileAttachment = {
@@ -223,6 +249,45 @@ export type WorkspaceDto = {
   updatedAt: string;
 };
 
+export type PlanDto = {
+  createdAt: string;
+  filePath?: string;
+  id: string;
+  sessionId: string;
+  summaryText?: string;
+};
+
+export type SessionPlanFileDto = {
+  content: string;
+  exists: boolean;
+  filePath: string;
+  plan: PlanDto;
+};
+
+export type TaskDto = {
+  acceptanceCriteria: string[];
+  completedAt?: string;
+  description?: string;
+  id: string;
+  lastErrorText?: string;
+  planId: string;
+  position: number;
+  sessionId: string;
+  startedAt?: string;
+  status: TaskStatus;
+  summaryText?: string;
+  title: string;
+  updatedAt: string;
+};
+
+export type SessionPlanBoardDto = {
+  currentPlan?: PlanDto;
+  currentTask?: TaskDto;
+  session: SessionDto;
+  tasks: TaskDto[];
+  waitingApprovalTaskIds: string[];
+};
+
 export type SessionCheckpoint = {
   approvalId?: string;
   kind:
@@ -248,6 +313,7 @@ export type SessionDto = {
   createdAt: string;
   currentPlanId?: string;
   currentTaskId?: string;
+  defaultVariant: SessionVariant;
   goalText: string;
   id: string;
   lastErrorText?: string;
@@ -301,6 +367,7 @@ export type MessageDto = {
   sessionId: string;
   status: MessageStatus;
   summary?: boolean;
+  taskId?: string;
   tokenUsage?: TokenUsageDto;
   updatedAt: string;
 };
@@ -332,6 +399,7 @@ export type ToolCallDto = {
   runId?: string;
   sessionId: string;
   status: ToolCallStatus;
+  taskId?: string;
   toolName: ToolName;
   updatedAt: string;
 };

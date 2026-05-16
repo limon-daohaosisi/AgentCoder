@@ -5,5 +5,7 @@ export const sessionRoutes = new Hono()
   .get('/', ...handlers.list)
   .post('/', ...handlers.create)
   .get('/:sessionId', ...handlers.getById)
+  .get('/:sessionId/plan-board', ...handlers.getPlanBoard)
+  .get('/:sessionId/plan-file', ...handlers.getPlanFile)
   .get('/:sessionId/messages', ...handlers.listMessages)
   .post('/:sessionId/resume', ...handlers.resume);

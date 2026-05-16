@@ -102,7 +102,7 @@ table "approvals" {
   }
 
   check "approvals_valid_kind" {
-    expr = "kind IN ('apply_patch', 'bash', 'write', 'edit')"
+    expr = "kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit')"
   }
 
   check "approvals_valid_status" {

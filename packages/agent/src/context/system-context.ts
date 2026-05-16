@@ -2,6 +2,10 @@ import type { MessageRuntimeMetadata, SessionDto } from '@opencode/shared';
 import { SYSTEM_PROMPT } from '../prompt.js';
 import type { ContextSystemBlock } from './schema.js';
 
+export type PlanRuntimeContext = {
+  filePath?: string;
+};
+
 export type SystemContextInput = {
   agentName: string;
   lastUserRuntime?: MessageRuntimeMetadata;
@@ -44,6 +48,7 @@ export function buildEnvironmentSystemBlock(
 
 export function buildRuntimeInstructionBlocks(input: {
   lastUserRuntime?: MessageRuntimeMetadata;
+  planContext?: PlanRuntimeContext;
   previousUserRuntime?: MessageRuntimeMetadata;
 }): ContextSystemBlock[] {
   const blocks: ContextSystemBlock[] = [];
@@ -63,14 +68,30 @@ export function buildRuntimeInstructionBlocks(input: {
             'Your operational mode has changed from plan to build.',
             'You are no longer in read-only mode.',
             'You are permitted to make file changes, run shell commands, and utilize your arsenal of tools as needed.',
+            input.planContext?.filePath
+              ? `The approved plan file path is ${input.planContext.filePath}. Read it and execute according to that plan unless you intentionally revise course.`
+              : 'Read the approved current plan file before implementing, and execute according to that plan unless you intentionally revise course.',
             '</system-reminder>'
           ].join('\n')
         : [
             '<system-reminder>',
             `Current operational mode: ${variant}.`,
             isReadOnly
-              ? 'You are currently in read-only mode. Prefer inspection, explanation, and planning over file changes or shell commands. Do not make file edits or run shell commands unless the user explicitly asks you to leave planning mode or the runtime changes mode for you.'
-              : 'You are permitted to make file changes, run shell commands, and use the available tools as needed. Prefer actually carrying the task through implementation and verification instead of stopping at analysis.',
+              ? [
+                  'You are currently in planning mode.',
+                  'You must not modify workspace code or run shell commands.',
+                  input.planContext?.filePath
+                    ? `The current plan file path is ${input.planContext.filePath}. If the file does not exist yet, create it with write. If it already exists, refine it with edit.`
+                    : 'A current plan file path will be provided by the runtime. Use write to create it first, then use edit for future refinements.',
+                  'First form a complete plan, then create or refine tasks so they stay aligned with that plan.'
+                ].join(' ')
+              : [
+                  'You are permitted to make file changes, run shell commands, and use the available tools as needed.',
+                  input.planContext?.filePath
+                    ? `The current approved plan file path is ${input.planContext.filePath}. Read it and implement according to that plan unless you intentionally revise course.`
+                    : 'Read the current approved plan file before implementing whenever planning context is relevant.',
+                  'Prefer actually carrying the task through implementation and verification instead of stopping at analysis.'
+                ].join(' '),
             '</system-reminder>'
           ].join('\n')
     });

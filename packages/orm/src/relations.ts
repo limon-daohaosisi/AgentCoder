@@ -55,14 +55,6 @@ export const toolCallsRelations = relations(toolCalls, ({ one, many }) => ({
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   artifacts: many(artifacts),
-  task: one(tasks, {
-    fields: [tasks.parentTaskId],
-    references: [tasks.id],
-    relationName: 'tasks_parentTaskId_tasks_id'
-  }),
-  tasks: many(tasks, {
-    relationName: 'tasks_parentTaskId_tasks_id'
-  }),
   plan: one(plans, {
     fields: [tasks.planId],
     references: [plans.id]

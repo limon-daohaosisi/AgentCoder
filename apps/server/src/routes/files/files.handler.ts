@@ -8,7 +8,7 @@ export const content = appFactory.createHandlers(
   async (c) => {
     const { path, workspaceRoot } = c.req.valid('query');
     const data = await readToolDefinition.execute({
-      context: buildToolExecutionContext({
+      context: await buildToolExecutionContext({
         sessionId: 'route-preview',
         toolCallId: 'route-preview',
         workspaceRoot: workspaceRoot ?? process.cwd()

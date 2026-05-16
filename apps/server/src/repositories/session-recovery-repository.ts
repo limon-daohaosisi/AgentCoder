@@ -136,6 +136,7 @@ function mapSessionRow(row: SessionRow): SessionDto {
     createdAt: row.createdAt,
     currentPlanId: mapNullableString(row.currentPlanId),
     currentTaskId: mapNullableString(row.currentTaskId),
+    defaultVariant: row.defaultVariant as SessionDto['defaultVariant'],
     goalText: row.goalText,
     id: row.id,
     lastCheckpointJson: mapNullableString(row.lastCheckpointJson),

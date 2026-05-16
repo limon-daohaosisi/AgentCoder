@@ -57,6 +57,32 @@ export function toolRequiresApproval(toolName: ToolName) {
   return getToolDefinition(toolName).approval === 'required';
 }
 
+export async function resolveToolApprovalMode(input: {
+  rawInput: Record<string, unknown>;
+  services?: ToolServices;
+  signal?: AbortSignal;
+  toolCallId: string;
+  toolName: ToolName;
+  sessionId: string;
+  workspaceRoot: string;
+  now?: () => string;
+}) {
+  const definition = getToolDefinition(input.toolName);
+  const parsedInput = definition.inputSchema.parse(input.rawInput);
+  const context = await buildToolExecutionContext({
+    now: input.now,
+    services: input.services,
+    sessionId: input.sessionId,
+    signal: input.signal,
+    toolCallId: input.toolCallId,
+    workspaceRoot: input.workspaceRoot
+  });
+
+  return definition.resolveApproval
+    ? definition.resolveApproval({ context, input: parsedInput })
+    : definition.approval;
+}
+
 export async function prepareToolExecution(input: {
   rawInput: Record<string, unknown>;
   services?: ToolServices;
@@ -75,7 +101,7 @@ export async function prepareToolExecution(input: {
 
   const definition = getToolDefinition(input.toolName);
   const parsedInput = definition.inputSchema.parse(input.rawInput);
-  const context = buildToolExecutionContext({
+  const context = await buildToolExecutionContext({
     now: input.now,
     services: input.services,
     sessionId: input.sessionId,
@@ -83,8 +109,9 @@ export async function prepareToolExecution(input: {
     toolCallId: input.toolCallId,
     workspaceRoot: input.workspaceRoot
   });
+  const approvalMode = await resolveToolApprovalMode(input);
 
-  if (definition.approval === 'required') {
+  if (approvalMode === 'required') {
     if (!definition.buildApproval) {
       throw new Error(
         `Approval builder is missing for tool ${input.toolName}.`
@@ -131,12 +158,8 @@ export async function executeApprovedTool(input: {
 
   const definition = getToolDefinition(input.toolName);
 
-  if (definition.approval !== 'required') {
-    throw new Error(`Tool ${input.toolName} does not require approval.`);
-  }
-
   const parsedInput = definition.inputSchema.parse(input.rawInput);
-  const context = buildToolExecutionContext({
+  const context = await buildToolExecutionContext({
     now: input.now,
     services: input.services,
     sessionId: input.sessionId,
@@ -144,6 +167,12 @@ export async function executeApprovedTool(input: {
     toolCallId: input.toolCallId,
     workspaceRoot: input.workspaceRoot
   });
+  const approvalMode = await resolveToolApprovalMode(input);
+
+  if (approvalMode !== 'required') {
+    throw new Error(`Tool ${input.toolName} does not require approval.`);
+  }
+
   const output = await definition.execute({
     approvalPayload: input.approvalPayload,
     context,
@@ -182,7 +211,12 @@ export type ToolExecutorDeps = {
 
 export type ToolExecutorResult =
   | { executedPartIds: string[]; kind: 'completed' }
-  | { checkpoint: SessionCheckpoint; kind: 'paused_for_approval' }
+  | {
+      approval?: Record<string, unknown>;
+      checkpoint: SessionCheckpoint;
+      kind: 'paused_for_approval';
+      toolCall?: ToolCallDto;
+    }
   | { kind: 'cancelled'; reason: string }
   | { error: string; kind: 'failed' };
 
@@ -223,12 +257,24 @@ export class ToolExecutor {
         continue;
       }
 
-      if (toolRequiresApproval(part.toolName as ToolName)) {
+      const approvalMode = await resolveToolApprovalMode({
+        now: this.deps.now,
+        rawInput: part.state.input,
+        services: this.deps.services,
+        sessionId: input.sessionId,
+        signal: input.signal,
+        toolCallId: part.toolCallId,
+        toolName: part.toolName as ToolName,
+        workspaceRoot: input.workspaceRoot
+      });
+
+      if (approvalMode === 'required') {
         const checkpoint = buildSessionCheckpoint({
           kind: 'waiting_approval',
           messageId: part.messageId,
           modelToolCallId: part.modelToolCallId,
           partId: part.id,
+          taskId: undefined,
           toolCallId: part.toolCallId
         });
 
@@ -358,20 +404,20 @@ export class ToolExecutor {
     });
 
     try {
-      const presentation = toolRequiresApproval(input.part.toolName as ToolName)
-        ? await executeApprovedTool({
-            approvalPayload: input.approvalPayload,
-            now: this.deps.now,
-            rawInput: input.part.state.input,
-            services: this.deps.services,
-            sessionId: input.sessionId,
-            signal: input.signal,
-            toolCallId: input.part.toolCallId,
-            toolName: input.part.toolName as ToolName,
-            workspaceRoot: input.workspaceRoot
-          })
-        : await (async () => {
-            const prepared = await prepareToolExecution({
+      const approvalMode = await resolveToolApprovalMode({
+        now: this.deps.now,
+        rawInput: input.part.state.input,
+        services: this.deps.services,
+        sessionId: input.sessionId,
+        signal: input.signal,
+        toolCallId: input.part.toolCallId,
+        toolName: input.part.toolName as ToolName,
+        workspaceRoot: input.workspaceRoot
+      });
+      const presentation =
+        approvalMode === 'required'
+          ? await executeApprovedTool({
+              approvalPayload: input.approvalPayload,
               now: this.deps.now,
               rawInput: input.part.state.input,
               services: this.deps.services,
@@ -380,16 +426,27 @@ export class ToolExecutor {
               toolCallId: input.part.toolCallId,
               toolName: input.part.toolName as ToolName,
               workspaceRoot: input.workspaceRoot
-            });
+            })
+          : await (async () => {
+              const prepared = await prepareToolExecution({
+                now: this.deps.now,
+                rawInput: input.part.state.input,
+                services: this.deps.services,
+                sessionId: input.sessionId,
+                signal: input.signal,
+                toolCallId: input.part.toolCallId,
+                toolName: input.part.toolName as ToolName,
+                workspaceRoot: input.workspaceRoot
+              });
 
-            if (prepared.kind !== 'auto') {
-              throw new Error(
-                `Expected auto execution result for tool ${input.part.toolName}.`
-              );
-            }
+              if (prepared.kind !== 'auto') {
+                throw new Error(
+                  `Expected auto execution result for tool ${input.part.toolName}.`
+                );
+              }
 
-            return prepared.presentation;
-          })();
+              return prepared.presentation;
+            })();
       const completedAt = this.now();
       const completedPart: Extract<MessagePart, { type: 'tool' }> = {
         ...runningPart,

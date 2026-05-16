@@ -1,10 +1,11 @@
 import { sessions } from '@opencode/orm';
 import type { NewSession, SessionRow } from '@opencode/orm';
-import type { SessionDto, SessionStatus } from '@opencode/shared';
+import type { SessionDto, SessionStatus, SessionVariant } from '@opencode/shared';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { Database } from '../db/runtime.js';
 
 type UpdateResumeStateInput = {
+  currentPlanId?: null | string;
   currentTaskId?: null | string;
   id: string;
   lastCheckpointJson?: null | string;
@@ -23,6 +24,7 @@ function mapSessionRow(row: SessionRow): SessionDto {
     createdAt: row.createdAt,
     currentPlanId: mapNullable(row.currentPlanId),
     currentTaskId: mapNullable(row.currentTaskId),
+    defaultVariant: row.defaultVariant as SessionVariant,
     goalText: row.goalText,
     id: row.id,
     lastCheckpointJson: mapNullable(row.lastCheckpointJson),
@@ -84,6 +86,10 @@ export const sessionRepository = {
 
     if (input.status !== undefined) {
       changes.status = input.status;
+    }
+
+    if (input.currentPlanId !== undefined) {
+      changes.currentPlanId = input.currentPlanId;
     }
 
     if (input.currentTaskId !== undefined) {

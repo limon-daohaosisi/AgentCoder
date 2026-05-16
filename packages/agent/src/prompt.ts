@@ -1,3 +1,5 @@
+import type { SessionVariant } from '@opencode/shared';
+
 export { SYSTEM_PROMPT } from './prompt/core-sections.js';
 
 export type PromptInput = {
@@ -14,7 +16,7 @@ export type PromptInput = {
   sessionId: string;
   system?: string;
   tools?: Record<string, boolean>;
-  variant?: string;
+  variant?: SessionVariant;
 };
 
 export function normalizePrompt(input: PromptInput) {

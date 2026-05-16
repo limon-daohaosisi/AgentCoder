@@ -8,6 +8,11 @@ import {
 } from '../shared/file-snapshot.js';
 import { formatDiagnosticsText } from '../shared/diagnostics.js';
 import {
+  assertPlanFileWriteAllowed,
+  resolveApprovalMode,
+  resolvePlanFilePolicy
+} from '../shared/plan-file-policy.js';
+import {
   resolveWorkspacePath,
   toWorkspaceRelativePath
 } from '../shared/path.js';
@@ -75,14 +80,13 @@ export const editToolDefinition: ToolDefinition<
     text: { maxChars: 4_000, visibleToModel: true }
   },
   async buildApproval({ context, input }) {
-    const absolutePath = await resolveWorkspacePath(
-      context.workspaceRoot,
-      input.filePath
-    );
-    const relativePath = toWorkspaceRelativePath(
-      context.workspaceRoot,
-      absolutePath
-    );
+    const policy = await assertPlanFileWriteAllowed({
+      context,
+      filePath: input.filePath,
+      mode: 'edit'
+    });
+    const absolutePath = policy.absolutePath;
+    const relativePath = policy.relativePath;
     const snapshot = await assertFreshSnapshot({
       absolutePath,
       path: relativePath,
@@ -111,14 +115,13 @@ export const editToolDefinition: ToolDefinition<
   },
   description: EDIT_TOOL_PROMPT,
   async execute({ context, input }) {
-    const absolutePath = await resolveWorkspacePath(
-      context.workspaceRoot,
-      input.filePath
-    );
-    const relativePath = toWorkspaceRelativePath(
-      context.workspaceRoot,
-      absolutePath
-    );
+    const policy = await assertPlanFileWriteAllowed({
+      context,
+      filePath: input.filePath,
+      mode: 'edit'
+    });
+    const absolutePath = policy.absolutePath;
+    const relativePath = policy.relativePath;
     const snapshot = await assertFreshSnapshot({
       absolutePath,
       path: relativePath,
@@ -179,5 +182,14 @@ export const editToolDefinition: ToolDefinition<
         .join('\n\n'),
       payload: output
     };
+  },
+  resolveApproval({ context, input }) {
+    return resolvePlanFilePolicy({ context, filePath: input.filePath }).then(
+      (policy) =>
+        resolveApprovalMode({
+          context,
+          isCurrentPlanFile: policy.isCurrentPlanFile
+        })
+    );
   }
 };

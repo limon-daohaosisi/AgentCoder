@@ -1,14 +1,18 @@
 import { SessionCompaction, type StreamModelResponse } from '@opencode/agent';
-import { SessionInteractionService } from '../services/agent/interaction-service.js';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, test } from 'node:test';
 import type { MessagePart } from '@opencode/shared';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
+import { SessionInteractionService } from '../services/agent/interaction-service.js';
 import { approvalRepository } from '../repositories/approval-repository.js';
 import { artifactRepository } from '../repositories/artifact-repository.js';
 import { buildSessionCompactionDeps } from '../wiring/agent.js';
+import { planService } from '../services/session/plan-service.js';
+import { agentRunService } from '../services/agent/run-service.js';
+import { toolCallRepository } from '../repositories/tool-call-repository.js';
+import { SessionRunner } from '../services/agent/runner.js';
 
 const {
   buildSessionCheckpoint,

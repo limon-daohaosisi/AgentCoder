@@ -39,6 +39,7 @@ export { ToolExecutor } from './tool-executor.js';
 export {
   executeApprovedTool,
   prepareToolExecution,
+  resolveToolApprovalMode,
   toolRequiresApproval
 } from './tool-executor.js';
 export type {
@@ -99,6 +100,16 @@ export {
   grepToolDefinition,
   readInputSchema,
   readToolDefinition,
+  taskCreateInputSchema,
+  taskCreateToolDefinition,
+  taskGetInputSchema,
+  taskGetToolDefinition,
+  taskListInputSchema,
+  taskListToolDefinition,
+  taskStopInputSchema,
+  taskStopToolDefinition,
+  taskUpdateInputSchema,
+  taskUpdateToolDefinition,
   toolByName,
   toolRegistry,
   writeInputSchema,

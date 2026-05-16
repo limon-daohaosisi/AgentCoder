@@ -12,6 +12,7 @@ import { workspaceRepository } from '../../repositories/workspace-repository.js'
 import { sessionResumeService } from './resume-service.js';
 
 type UpdateSessionRuntimeStateInput = {
+  currentPlanId?: null | string;
   currentTaskId?: null | string;
   lastCheckpoint?: null | SessionCheckpoint | string;
   lastErrorText?: null | string;
@@ -66,6 +67,7 @@ export const sessionService = {
     const now = new Date().toISOString();
     const session = sessionRepository.create({
       createdAt: now,
+      defaultVariant: input.defaultVariant ?? 'plan',
       goalText: input.goalText.trim(),
       id: randomUUID(),
       status: 'planning',
@@ -100,6 +102,7 @@ export const sessionService = {
     input: UpdateSessionRuntimeStateInput
   ): SessionDto | null {
     return sessionRepository.updateResumeState({
+      currentPlanId: input.currentPlanId,
       currentTaskId: input.currentTaskId,
       id: input.sessionId,
       lastCheckpointJson: serializeCheckpoint(input.lastCheckpoint),

@@ -9,6 +9,7 @@ import type {
   FileSnapshotStore,
   FileSnapshotStoreLookup
 } from './shared/file-snapshot.js';
+import type { TaskDto } from '@opencode/shared';
 
 export type ToolApproval = 'never' | 'required';
 
@@ -55,7 +56,7 @@ export const DEFAULT_TOOL_OUTPUT_POLICY: ToolOutputPolicy = {
 
 export type ApprovalToolName = Extract<
   ToolName,
-  'apply_patch' | 'bash' | 'edit' | 'write'
+  'apply_patch' | 'bash' | 'edit' | 'plan_exit' | 'write'
 >;
 
 export type ToolPresentation = {
@@ -77,6 +78,62 @@ export type ToolServices = {
     requireFullRead?: boolean;
     sessionId: string;
   }): Promise<FileSnapshotStoreLookup | null>;
+  getSessionTaskContext?(input: {
+    sessionId: string;
+  }): Promise<{
+    currentPlanId?: string;
+    currentTaskId?: string;
+    variant: 'build' | 'plan';
+  }>;
+  getSessionPlanContext?(input: { sessionId: string }): Promise<{
+    filePath?: string;
+    variant: 'build' | 'plan';
+  }>;
+  getSessionPlanApprovalPayload?(input: {
+    sessionId: string;
+    summary?: string;
+  }): Promise<Record<string, unknown>>;
+  taskCreate?(input: {
+    acceptanceCriteria?: string[];
+    description?: string;
+    position?: number;
+    sessionId: string;
+    status?: 'ready' | 'todo';
+    title: string;
+  }): Promise<TaskDto>;
+  taskGet?(input: { sessionId: string; taskId: string }): Promise<TaskDto | null>;
+  taskList?(input: {
+    sessionId: string;
+  }): Promise<{
+    currentTaskId?: string;
+    tasks: TaskDto[];
+  }>;
+  taskStop?(input: {
+    reason: string;
+    sessionId: string;
+    summaryText?: string;
+    taskId: string;
+  }): Promise<TaskDto>;
+  taskUpdate?(input: {
+    acceptanceCriteria?: string[];
+    completedAt?: string | null;
+    description?: string | null;
+    lastErrorText?: string | null;
+    position?: number;
+    sessionId: string;
+    startedAt?: string | null;
+    status?:
+      | 'blocked'
+      | 'done'
+      | 'failed'
+      | 'ready'
+      | 'running'
+      | 'todo'
+      | 'waiting_approval';
+    summaryText?: string | null;
+    taskId: string;
+    title?: string;
+  }): Promise<TaskDto>;
 };
 
 export type ToolExecutionContext = {
@@ -84,7 +141,12 @@ export type ToolExecutionContext = {
   diagnostics: DiagnosticsProvider;
   fileSnapshots: FileSnapshotStore;
   now(): string;
+  planContext?: {
+    filePath?: string;
+    variant: 'build' | 'plan';
+  };
   sessionId: string;
+  services: ToolServices;
   toolCallId: string;
   workspaceRoot: string;
 };
@@ -112,6 +174,10 @@ export type ToolDefinition<
     input: z.infer<TInputSchema>;
     output: TOutput;
   }): ToolPresentation;
+  resolveApproval?(input: {
+    context: ToolExecutionContext;
+    input: z.infer<TInputSchema>;
+  }): Promise<ToolApproval>;
 };
 
 export const noOpDiagnosticsProvider: DiagnosticsProvider = {
@@ -129,14 +195,18 @@ export const noOpFileSnapshotStore: FileSnapshotStore = {
   }
 };
 
-export function buildToolExecutionContext(input: {
+export async function buildToolExecutionContext(input: {
   now?: () => string;
   services?: ToolServices;
   signal?: AbortSignal;
   sessionId: string;
   toolCallId: string;
   workspaceRoot: string;
-}): ToolExecutionContext {
+}): Promise<ToolExecutionContext> {
+  const planContext = await input.services?.getSessionPlanContext?.({
+    sessionId: input.sessionId
+  });
+
   return {
     abortSignal: input.signal,
     diagnostics: {
@@ -149,10 +219,12 @@ export function buildToolExecutionContext(input: {
         input.services?.createFileSnapshot ?? noOpFileSnapshotStore.create,
       getLatestForPath:
         input.services?.getLatestFileSnapshot ??
-        noOpFileSnapshotStore.getLatestForPath
+          noOpFileSnapshotStore.getLatestForPath
     },
     now: input.now ?? (() => new Date().toISOString()),
+    planContext,
     sessionId: input.sessionId,
+    services: input.services ?? {},
     toolCallId: input.toolCallId,
     workspaceRoot: input.workspaceRoot
   };

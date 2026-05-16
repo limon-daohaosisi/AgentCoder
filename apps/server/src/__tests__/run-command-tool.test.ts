@@ -40,6 +40,7 @@ test('runCommandTool abort kills the spawned shell process group', async (t) => 
         },
         now: () => new Date().toISOString(),
         sessionId: 'session-test',
+        services: {},
         toolCallId: 'tool-call-test',
         workspaceRoot
       },
@@ -87,6 +88,7 @@ test('runCommandTool rejects immediately when signal is already aborted', async 
           },
           now: () => new Date().toISOString(),
           sessionId: 'session-test',
+          services: {},
           toolCallId: 'tool-call-test',
           workspaceRoot
         },
@@ -122,6 +124,7 @@ test('runCommandTool truncates large output and keeps full output on disk', asyn
         },
         now: () => new Date().toISOString(),
         sessionId: 'session-test',
+        services: {},
         toolCallId: 'tool-call-test',
         workspaceRoot
       },
@@ -162,6 +165,7 @@ test('runCommandTool rejects interactive commands with a clear message', async (
           },
           now: () => new Date().toISOString(),
           sessionId: 'session-test',
+          services: {},
           toolCallId: 'tool-call-test',
           workspaceRoot
         },

@@ -68,6 +68,7 @@ function createToolContext(input: {
     },
     now: () => '2026-05-09T00:00:00.000Z',
     sessionId: 'session-test',
+    services: {},
     toolCallId: 'tool-call-test',
     workspaceRoot: input.workspaceRoot
   };
