@@ -9,10 +9,6 @@ import { SessionInteractionService } from '../services/agent/interaction-service
 import { approvalRepository } from '../repositories/approval-repository.js';
 import { artifactRepository } from '../repositories/artifact-repository.js';
 import { buildSessionCompactionDeps } from '../wiring/agent.js';
-import { planService } from '../services/session/plan-service.js';
-import { agentRunService } from '../services/agent/run-service.js';
-import { toolCallRepository } from '../repositories/tool-call-repository.js';
-import { SessionRunner } from '../services/agent/runner.js';
 
 const {
   buildSessionCheckpoint,
