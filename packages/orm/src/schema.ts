@@ -42,21 +42,21 @@ export const artifacts = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
@@ -111,122 +111,45 @@ export const plans = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
-      'approvals_check_10',
+      'approvals_check_11',
       sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
-      'approvals_check_11',
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
-      'tool_calls_check_13',
+      'tool_calls_check_14',
       sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
-      'tool_calls_check_14',
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
-  ]
-);
-
-export const tasks = sqliteTable(
-  'tasks',
-  {
-    id: text().primaryKey().notNull(),
-    sessionId: text('session_id')
-      .notNull()
-      .references(() => sessions.id, { onDelete: 'cascade' }),
-    planId: text('plan_id')
-      .notNull()
-      .references(() => plans.id, { onDelete: 'cascade' }),
-    position: integer().notNull(),
-    title: text().notNull(),
-    description: text(),
-    acceptanceCriteriaJson: text('acceptance_criteria_json')
-      .default('[]')
-      .notNull(),
-    status: text().default('todo').notNull(),
-    summaryText: text('summary_text'),
-    lastErrorText: text('last_error_text'),
-    startedAt: text('started_at'),
-    completedAt: text('completed_at'),
-    updatedAt: text('updated_at').notNull()
-  },
-  (table) => [
-    index('idx_tasks_session_status').on(table.sessionId, table.status),
-    index('idx_tasks_session_position').on(table.sessionId, table.position),
-    uniqueIndex('tasks_plan_position_idx').on(table.planId, table.position),
-    check(
-      'artifacts_check_1',
-      sql`kind IN ('diff', 'stdout', 'stderr', 'error', 'file_snapshot', 'plan_summary', 'task_summary', 'final_result'`
-    ),
-    check(
-      'artifacts_check_2',
-      sql`body_text IS NOT NULL OR payload_json IS NOT NULL`
-    ),
-    check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
-    check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
-      sql`level IN ('debug', 'info', 'warning', 'error'`
-    ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
-    check(
-      'messages_check_7',
-      sql`status IN ('running', 'completed', 'failed', 'cancelled'`
-    ),
-    check(
-      'agent_runs_check_8',
-      sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
-    ),
-    check(
-      'sessions_check_9',
-      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
-    ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
-    check(
-      'approvals_check_11',
-      sql`status IN ('pending', 'approved', 'rejected'`
-    ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
-    check(
-      'tool_calls_check_14',
-      sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
-    ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -253,44 +176,45 @@ export const workspaces = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -341,44 +265,45 @@ export const sessionEvents = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -431,44 +356,45 @@ export const messages = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -513,44 +439,45 @@ export const messageParts = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -591,44 +518,124 @@ export const agentRuns = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
+  ]
+);
+
+export const tasks = sqliteTable(
+  'tasks',
+  {
+    id: text().primaryKey().notNull(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    planId: text('plan_id')
+      .notNull()
+      .references(() => plans.id, { onDelete: 'cascade' }),
+    position: integer().notNull(),
+    title: text().notNull(),
+    description: text(),
+    acceptanceCriteriaJson: text('acceptance_criteria_json')
+      .default('[]')
+      .notNull(),
+    status: text().default('todo').notNull(),
+    summaryText: text('summary_text'),
+    lastErrorText: text('last_error_text'),
+    startedAt: text('started_at'),
+    completedAt: text('completed_at'),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => [
+    index('idx_tasks_session_status').on(table.sessionId, table.status),
+    index('idx_tasks_session_position').on(table.sessionId, table.position),
+    uniqueIndex('tasks_plan_position_idx').on(table.planId, table.position),
+    check(
+      'artifacts_check_1',
+      sql`kind IN ('diff', 'stdout', 'stderr', 'error', 'file_snapshot', 'plan_summary', 'task_summary', 'final_result'`
+    ),
+    check(
+      'artifacts_check_2',
+      sql`body_text IS NOT NULL OR payload_json IS NOT NULL`
+    ),
+    check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
+    check(
+      'session_events_check_4',
+      sql`level IN ('debug', 'info', 'warning', 'error'`
+    ),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
+    check(
+      'messages_check_6',
+      sql`status IN ('running', 'completed', 'failed', 'cancelled'`
+    ),
+    check(
+      'agent_runs_check_7',
+      sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
+    ),
+    check(
+      'sessions_check_9',
+      sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
+    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
+    check(
+      'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
+      sql`status IN ('pending', 'approved', 'rejected'`
+    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
+    check(
+      'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
+      sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
+    ),
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -667,44 +674,45 @@ export const sessions = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -752,44 +760,45 @@ export const approvals = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
 
@@ -843,43 +852,44 @@ export const toolCalls = sqliteTable(
     ),
     check('plans_check_3', sql`status IN ('draft', 'confirmed', 'superseded'`),
     check(
-      'tasks_check_4',
-      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
-    ),
-    check(
-      'session_events_check_5',
+      'session_events_check_4',
       sql`level IN ('debug', 'info', 'warning', 'error'`
     ),
-    check('messages_check_6', sql`role IN ('user', 'assistant'`),
+    check('messages_check_5', sql`role IN ('user', 'assistant'`),
     check(
-      'messages_check_7',
+      'messages_check_6',
       sql`status IN ('running', 'completed', 'failed', 'cancelled'`
     ),
     check(
-      'agent_runs_check_8',
+      'agent_runs_check_7',
       sql`status IN ('running', 'waiting_approval', 'completed', 'cancelled', 'failed', 'blocked'`
+    ),
+    check(
+      'tasks_check_8',
+      sql`status IN ('todo', 'ready', 'running', 'blocked', 'waiting_approval', 'done', 'failed'`
     ),
     check(
       'sessions_check_9',
       sql`status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived'`
     ),
-    check(
-      'approvals_check_10',
-      sql`kind IN ('apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('sessions_check_10', sql`default_variant IN ('plan', 'build'`),
     check(
       'approvals_check_11',
+      sql`kind IN ('apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'approvals_check_12',
       sql`status IN ('pending', 'approved', 'rejected'`
     ),
-    check('approvals_check_12', sql`decision_scope IN ('once', 'session_rule'`),
-    check(
-      'tool_calls_check_13',
-      sql`tool_name IN ('read', 'glob', 'grep', 'apply_patch', 'bash', 'write', 'edit'`
-    ),
+    check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
+      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+    ),
+    check(
+      'tool_calls_check_15',
       sql`status IN ('pending', 'pending_approval', 'approved', 'rejected', 'running', 'completed', 'failed'`
     ),
-    check('tool_calls_check_15', sql`requires_approval IN (0, 1`)
+    check('tool_calls_check_16', sql`requires_approval IN (0, 1`)
   ]
 );
