@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react';
 import { useState } from 'react';
-import type { SessionDto } from '@opencode/shared';
+import type { SessionDto, SessionVariant } from '@opencode/shared';
 import { Link } from '@tanstack/react-router';
 import {
   buildSessionExcerpt,
@@ -11,7 +11,11 @@ type SessionListProps = {
   currentSessionId?: string;
   errorMessage?: string;
   isCreating?: boolean;
-  onCreateSession: (input: { goalText: string; title?: string }) => void;
+  onCreateSession: (input: {
+    defaultVariant: SessionVariant;
+    goalText: string;
+    title?: string;
+  }) => void;
   sessions: SessionDto[];
   workspaceId: string;
 };
@@ -67,6 +71,7 @@ export function SessionList({
   const [goalText, setGoalText] = useState('');
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [defaultVariant, setDefaultVariant] = useState<SessionVariant>('plan');
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -78,6 +83,7 @@ export function SessionList({
     }
 
     onCreateSession({
+      defaultVariant,
       goalText: normalizedGoalText,
       title: title.trim() || undefined
     });
@@ -121,6 +127,26 @@ export function SessionList({
             placeholder="描述这个复杂任务的目标"
             value={goalText}
           />
+          <div className="inline-flex rounded-full border border-sand bg-white p-1 text-xs font-semibold text-slate-600">
+            {(['plan', 'build'] as const).map((variant) => {
+              const active = variant === defaultVariant;
+
+              return (
+                <button
+                  className={
+                    active
+                      ? 'rounded-full bg-ink px-3 py-1.5 text-white'
+                      : 'rounded-full px-3 py-1.5 text-slate-600'
+                  }
+                  key={variant}
+                  onClick={() => setDefaultVariant(variant)}
+                  type="button"
+                >
+                  {variant === 'plan' ? 'Plan 默认' : 'Build 默认'}
+                </button>
+              );
+            })}
+          </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs leading-5 text-slate-500">
               `goalText` 会直接写入 session current-state。
@@ -172,6 +198,9 @@ export function SessionList({
               </span>
               <span className="rounded-full border border-white bg-white/80 px-3 py-1.5 text-slate-600">
                 {sessionProgressLabel(session.status)}
+              </span>
+              <span className="rounded-full border border-white bg-white/80 px-3 py-1.5 text-slate-600">
+                {session.defaultVariant === 'plan' ? '默认 Plan' : '默认 Build'}
               </span>
               {session.status === 'waiting_approval' ? (
                 <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1.5 text-amber-800">

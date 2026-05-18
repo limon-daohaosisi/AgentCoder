@@ -10,6 +10,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
+import { taskRepository } from '../repositories/task-repository.js';
+import { planService } from '../services/session/plan-service.js';
 import { toolCallRepository } from '../repositories/tool-call-repository.js';
 import { buildSessionProcessorDeps } from '../wiring/agent.js';
 
@@ -381,7 +383,7 @@ test('SessionProcessor persists auto tool calls without executing local tools', 
   );
 });
 
-test('SessionProcessor pauses for approval-required tools and stores part checkpoint', async () => {
+test('SessionProcessor rejects write to non-plan-file paths in plan mode', async () => {
   const session = createSession();
   const run = agentRunService.createRun({ sessionId: session.id });
   const filePath = path.join(environment.workspaceRoot, 'src', 'index.ts');
@@ -468,22 +470,154 @@ test('SessionProcessor pauses for approval-required tools and stores part checkp
     })
   );
 
-  assert.equal(result.kind, 'paused_for_approval');
-  assert.equal(result.checkpoint.kind, 'waiting_approval');
-  assert.ok(result.checkpoint.messageId);
-  assert.ok(result.checkpoint.partId);
-  assert.equal(result.checkpoint.modelToolCallId, 'model-call-write');
-  assert.ok(result.checkpoint.toolCallId);
-  assert.equal(result.approval.kind, 'write');
-  assert.equal(result.approval.status, 'pending');
-  assert.equal(result.toolCall.id, result.checkpoint.toolCallId);
-  assert.equal(sessionService.getSession(session.id)?.status, 'planning');
-  assert.deepEqual(
-    sessionEventService
-      .listAfterSequence(session.id, 0)
-      .map((envelope) => envelope.event.type),
-    ['message.created', 'message.part.created', 'message.completed']
+  assert.equal(result.kind, 'tool_calls');
+  assert.deepEqual(result.toolParts, []);
+
+  const [message] = messageService.listMessages(session.id);
+  const toolPart = message?.content.find((part) => part.type === 'tool');
+
+  assert.equal(toolPart?.type, 'tool');
+  assert.equal(
+    toolPart?.type === 'tool' ? toolPart.state.status : undefined,
+    'error'
   );
+  assert.match(
+    toolPart?.type === 'tool' && toolPart.state.status === 'error'
+      ? toolPart.state.errorText
+      : '',
+    /may only target the current plan file/
+  );
+});
+
+test('SessionProcessor auto-executes current plan file edits and still attaches currentTaskId', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const plan = planService.getSessionPlanBoard(session.id);
+  const planFile = await planService.getSessionPlanFile(session.id);
+  const filePath = path.join(environment.workspaceRoot, planFile.filePath);
+  const content = await readFile(filePath, 'utf8');
+  const fileStat = await stat(filePath);
+  const task = taskRepository.create({
+    acceptanceCriteria: ['Durable truth should carry task linkage'],
+    completedAt: null,
+    description: 'Track the current execution task',
+    id: 'task-current-runtime',
+    lastErrorText: null,
+    planId: plan.currentPlan!.id,
+    position: 1,
+    sessionId: session.id,
+    startedAt: '2026-04-27T00:00:00.000Z',
+    status: 'running',
+    summaryText: null,
+    title: 'Track runtime task',
+    updatedAt: '2026-04-27T00:00:00.000Z'
+  });
+
+  toolCallRepository.create({
+    createdAt: '2026-04-27T00:00:00.000Z',
+    id: 'snapshot-tool-call-current-task',
+    input: { filePath: 'src/index.ts' },
+    messageId: null,
+    messagePartId: null,
+    modelToolCallId: null,
+    requiresApproval: false,
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed',
+    taskId: task.id,
+    toolName: 'read',
+    updatedAt: '2026-04-27T00:00:00.000Z'
+  });
+  await fileSnapshotService.createFromRead({
+    sessionId: session.id,
+    snapshot: {
+      fullRead: true,
+      lineCount: 1,
+      mtimeMs: fileStat.mtimeMs,
+      path: 'src/index.ts',
+      readAt: '2026-04-27T00:00:00.000Z',
+      sha256: createHash('sha256').update(content).digest('hex'),
+      size: fileStat.size,
+      truncated: false,
+      version: 1
+    },
+    toolCallId: 'snapshot-tool-call-current-task'
+  });
+
+  sessionService.updateSessionRuntimeState({
+    currentTaskId: task.id,
+    sessionId: session.id
+  });
+
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                filePath: planFile.filePath,
+                newString: '## Goal\n\nTrack runtime task linkage\n\n',
+                oldString: '## Goal\n\n'
+              },
+              toolCallId: 'model-call-edit-tasked',
+              toolName: 'edit',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-approval-tasked',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          edit: {
+            approval: 'required',
+            enabled: true,
+            name: 'edit',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+
+  const [assistantMessage] = messageService
+    .listMessages(session.id)
+    .filter((message) => message.role === 'assistant');
+  const toolPart = assistantMessage?.content.find(
+    (part) => part.type === 'tool'
+  );
+  const persistedToolCall =
+    toolPart?.type === 'tool'
+      ? toolCallRepository.getById(toolPart.toolCallId)
+      : null;
+
+  assert.equal(assistantMessage?.taskId, task.id);
+  assert.equal(persistedToolCall?.taskId, task.id);
+  assert.equal(persistedToolCall?.requiresApproval, false);
 });
 
 test('SessionProcessor converts approval payload generation failures into tool errors', async () => {
@@ -596,18 +730,19 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
         createFakeStream({
           events: [
             {
-              input: {
-                content: 'export const first = true;\n',
-                filePath: 'src/first.ts'
-              },
-              toolCallId: 'model-call-write-1',
-              toolName: 'write',
+              input: { command: 'pwd', description: 'Print working directory' },
+              toolCallId: 'model-call-command-1',
+              toolName: 'bash',
               type: 'tool-call'
             },
             {
-              input: { command: 'pwd' },
-              toolCallId: 'model-call-command-1',
-              toolName: 'bash',
+              input: {
+                filePath: 'src/index.ts',
+                newString: 'export const ok = false;\n',
+                oldString: 'export const ok = true;\n'
+              },
+              toolCallId: 'model-call-edit-1',
+              toolName: 'edit',
               type: 'tool-call'
             },
             {
@@ -640,10 +775,10 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
             name: 'bash',
             source: 'builtin'
           },
-          write: {
+          edit: {
             approval: 'required',
             enabled: true,
-            name: 'write',
+            name: 'edit',
             source: 'builtin'
           }
         }
@@ -668,4 +803,68 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
     ['error', 'error']
   );
   assert.equal(sessionService.getSession(session.id)?.status, 'planning');
+});
+
+test('SessionProcessor pauses for plan_exit approval with full plan payload', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+
+  await planService.getSessionPlanFile(session.id);
+
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: { summary: 'Plan is ready for implementation' },
+              toolCallId: 'model-call-plan-exit',
+              toolName: 'plan_exit',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-plan-exit',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          plan_exit: {
+            approval: 'required',
+            enabled: true,
+            name: 'plan_exit',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'paused_for_approval');
+  assert.equal(result.approval.kind, 'plan_exit');
+  assert.match(
+    String(result.approval.payload.planFilePath ?? ''),
+    /^\.mycoding\/plans\/.+\.md$/
+  );
+  assert.match(String(result.approval.payload.planContent ?? ''), /# Plan/);
 });

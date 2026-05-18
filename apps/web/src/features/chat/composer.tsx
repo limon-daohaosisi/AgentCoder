@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
+import type { SessionVariant } from '@opencode/shared';
 
 type ComposerProps = {
   defaultValue: string;
@@ -7,6 +8,8 @@ type ComposerProps = {
   hint: string;
   isSubmitting?: boolean;
   onSubmit: (content: string) => void;
+  onVariantChange: (variant: SessionVariant) => void;
+  variant: SessionVariant;
 };
 
 export function Composer({
@@ -14,7 +17,9 @@ export function Composer({
   disabled = false,
   hint,
   isSubmitting = false,
-  onSubmit
+  onSubmit,
+  onVariantChange,
+  variant
 }: ComposerProps) {
   const [value, setValue] = useState(defaultValue);
 
@@ -43,6 +48,27 @@ export function Composer({
       <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
         补充要求
       </label>
+      <div className="mb-3 inline-flex rounded-full border border-sand bg-white p-1 text-xs font-semibold text-slate-600">
+        {(['plan', 'build'] as const).map((item) => {
+          const active = item === variant;
+
+          return (
+            <button
+              className={
+                active
+                  ? 'rounded-full bg-ink px-3 py-1.5 text-white'
+                  : 'rounded-full px-3 py-1.5 text-slate-600'
+              }
+              disabled={disabled || isSubmitting}
+              key={item}
+              onClick={() => onVariantChange(item)}
+              type="button"
+            >
+              {item === 'plan' ? 'Plan' : 'Build'}
+            </button>
+          );
+        })}
+      </div>
       <textarea
         className="min-h-28 w-full resize-none rounded-2xl border border-white bg-white px-4 py-3 text-sm text-ink outline-none ring-0"
         disabled={disabled || isSubmitting}

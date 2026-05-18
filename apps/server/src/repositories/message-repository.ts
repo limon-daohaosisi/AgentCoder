@@ -83,6 +83,7 @@ function mapMessageRow(row: MessageRow): MessageDto {
     sessionId: row.sessionId,
     status: row.status as MessageStatus,
     summary: row.summary === 1 ? true : undefined,
+    taskId: row.taskId ?? undefined,
     tokenUsage,
     updatedAt: row.updatedAt
   };

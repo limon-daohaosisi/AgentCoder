@@ -51,7 +51,8 @@ export const submitMessage = appFactory.createHandlers(
     try {
       const response = await sessionInteractionService.prompt({
         content: payload.content,
-        sessionId
+        sessionId,
+        ...(payload.variant ? { variant: payload.variant } : {})
       });
 
       return c.json({ data: response }, 202);

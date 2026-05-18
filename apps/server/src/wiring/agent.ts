@@ -1,6 +1,7 @@
 import {
   Lifecycle,
   prepareToolExecution,
+  resolveToolApprovalMode,
   RunLoop,
   SessionCompaction,
   SessionProcessor,
@@ -19,11 +20,61 @@ import { streamModelResponse } from '../services/ai/response-stream.js';
 import { messageService } from '../services/session/message/service.js';
 import { messagePartService } from '../services/session/message/part-service.js';
 import { sessionEventService } from '../services/session-events/event-service.js';
+import { taskService } from '../services/session/task-service.js';
 import { sessionService } from '../services/session/service.js';
 import { agentRunService } from '../services/agent/run-service.js';
 import { fileSnapshotService } from '../services/agent/file-snapshot-service.js';
 import { promptSourceService } from '../services/agent/prompt-source-service.js';
 import { toolStateService } from '../services/agent/tool-state-service.js';
+import { planService } from '../services/session/plan-service.js';
+
+function buildToolServices() {
+  return {
+    createFileSnapshot: (snapshotInput: {
+      sessionId: string;
+      snapshot: FileSnapshotArtifact;
+      toolCallId: string;
+    }) => fileSnapshotService.createFromRead(snapshotInput),
+    getLatestFileSnapshot: (snapshotInput: {
+      path: string;
+      requireFullRead?: boolean;
+      sessionId: string;
+    }) => fileSnapshotService.getLatestForPath(snapshotInput),
+    getSessionPlanContext: (planContextInput: { sessionId: string }) =>
+      Promise.resolve({
+        filePath: planService.getOrCreateCurrentPlan(planContextInput.sessionId)
+          .plan.filePath,
+        variant: taskService.getCurrentTaskContext(planContextInput.sessionId)
+          .variant
+      }),
+    getSessionPlanApprovalPayload: (input: {
+      sessionId: string;
+      summary?: string;
+    }) => planService.buildPlanExitApprovalPayload(input),
+    getSessionTaskContext: (taskContextInput: { sessionId: string }) =>
+      Promise.resolve(
+        taskService.getCurrentTaskContext(taskContextInput.sessionId)
+      ),
+    taskCreate: (taskInput: Parameters<typeof taskService.createTask>[0]) =>
+      Promise.resolve(taskService.createTask(taskInput)),
+    taskGet: (
+      taskInput: Parameters<
+        typeof taskService.getTaskForSession
+      >[0] extends never
+        ? never
+        : { sessionId: string; taskId: string }
+    ) =>
+      Promise.resolve(
+        taskService.getTaskForSession(taskInput.sessionId, taskInput.taskId)
+      ),
+    taskList: (taskInput: { sessionId: string }) =>
+      Promise.resolve(taskService.listTasksForSession(taskInput.sessionId)),
+    taskStop: (taskInput: Parameters<typeof taskService.stopTask>[0]) =>
+      Promise.resolve(taskService.stopTask(taskInput)),
+    taskUpdate: (taskInput: Parameters<typeof taskService.updateTask>[0]) =>
+      Promise.resolve(taskService.updateTask(taskInput))
+  };
+}
 
 export function buildSessionProcessorDeps(
   overrides: Partial<SessionProcessorDeps> = {}
@@ -32,24 +83,20 @@ export function buildSessionProcessorDeps(
     appendMessagePart: (input) => messagePartService.appendPart(input),
     appendSessionEvent: (event) => sessionEventService.append(event),
     createMessage: (input) => messageService.createMessage(input),
+    getCurrentTaskContext: (sessionId) =>
+      taskService.getCurrentTaskContext(sessionId),
     createToolPartWithToolCall: (input) =>
       toolStateService.createToolPartWithToolCall(input),
     persist: (callback) => Database.transaction(callback),
     prepareToolExecution: (input) =>
       prepareToolExecution({
         ...input,
-        services: {
-          createFileSnapshot: (snapshotInput: {
-            sessionId: string;
-            snapshot: FileSnapshotArtifact;
-            toolCallId: string;
-          }) => fileSnapshotService.createFromRead(snapshotInput),
-          getLatestFileSnapshot: (snapshotInput: {
-            path: string;
-            requireFullRead?: boolean;
-            sessionId: string;
-          }) => fileSnapshotService.getLatestForPath(snapshotInput)
-        }
+        services: buildToolServices()
+      }),
+    resolveToolApprovalMode: (input) =>
+      resolveToolApprovalMode({
+        ...input,
+        services: buildToolServices()
       }),
     streamModelResponse,
     updateMessagePart: (part) => messagePartService.updatePart(part),
@@ -68,11 +115,7 @@ export const toolExecutor = new ToolExecutor({
   appendSessionEvent: (event) => sessionEventService.append(event),
   getMessagePart: (partId) => messagePartService.getPart(partId),
   persist: (callback) => Database.transaction(callback),
-  services: {
-    createFileSnapshot: (input) => fileSnapshotService.createFromRead(input),
-    getLatestFileSnapshot: (input) =>
-      fileSnapshotService.getLatestForPath(input)
-  },
+  services: buildToolServices(),
   updateToolPartWithToolCall: (input) =>
     toolStateService.updateToolPartWithToolCall(input)
 });
@@ -132,6 +175,9 @@ export function buildRunLoopDeps(
 ): RunLoopDeps {
   return {
     getSession: (sessionId) => sessionService.getSession(sessionId),
+    getSessionPlanContext: (sessionId) => ({
+      filePath: planService.getOrCreateCurrentPlan(sessionId).plan.filePath
+    }),
     listPromptMemorySources: (input) =>
       promptSourceService.listPromptMemorySources(input),
     listMessages: (sessionId) => messageService.listMessages(sessionId),

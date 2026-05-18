@@ -167,6 +167,7 @@ export const sampleSessions: MockSessionView[] = [
       subtitle: '先确认拆解方式，再让 agent 进入执行。',
       title: '规划详情'
     },
+    defaultVariant: 'plan',
     goal: '把 OpenCode Web Lite 的主工作台改成“复杂任务 -> 小任务 -> 时间线 -> 详情区”的结构，并弱化重型审批中心。',
     id: 'session-001',
     mode: 'planning',
@@ -292,6 +293,7 @@ export const sampleSessions: MockSessionView[] = [
       subtitle: '当前聚焦于布局切换和任务板视觉层级。',
       title: '实现详情'
     },
+    defaultVariant: 'build',
     goal: '把新的复杂任务工作台真实渲染出来，包括左侧复杂任务列表、中间任务板与执行时间线、右侧详情区。',
     id: 'session-002',
     mode: 'executing',

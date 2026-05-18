@@ -242,6 +242,21 @@ function deriveRunId(event: SessionEvent) {
   return undefined;
 }
 
+function deriveTaskId(event: SessionEvent) {
+  switch (event.type) {
+    case 'message.created':
+      return event.message.taskId;
+    case 'tool.pending':
+      return event.approval.taskId ?? event.toolCall.taskId;
+    case 'approval.created':
+      return event.approval.taskId;
+    case 'tool.completed':
+      return event.toolCall.taskId;
+    default:
+      return undefined;
+  }
+}
+
 export const sessionEventService = {
   append(event: SessionEvent): SessionEventEnvelope {
     const runId = deriveRunId(event);
@@ -250,7 +265,8 @@ export const sessionEventService = {
       event,
       ...deriveMetadata(event),
       runId,
-      sessionId: event.sessionId
+      sessionId: event.sessionId,
+      taskId: deriveTaskId(event)
     });
 
     Database.effect(() => {

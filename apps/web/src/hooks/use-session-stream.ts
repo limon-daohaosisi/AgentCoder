@@ -37,6 +37,18 @@ function isCacheRelevantEvent(event: SessionEventEnvelope['event']) {
   return !event.type.startsWith('message.');
 }
 
+function isPlanBoardRelevantEvent(event: SessionEventEnvelope['event']) {
+  return (
+    event.type === 'session.updated' ||
+    event.type === 'tool.pending' ||
+    event.type === 'tool.running' ||
+    event.type === 'tool.completed' ||
+    event.type === 'tool.failed' ||
+    event.type === 'approval.created' ||
+    event.type === 'approval.resolved'
+  );
+}
+
 function isMessageCacheRelevantEvent(event: SessionEventEnvelope['event']) {
   return (
     event.type === 'message.created' ||
@@ -127,6 +139,15 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
         if (isMessageCacheRelevantEvent(envelope.event)) {
           void queryClient.invalidateQueries({
             queryKey: ['messages', sessionId]
+          });
+        }
+
+        if (isPlanBoardRelevantEvent(envelope.event)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['session-plan-board', sessionId]
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['session-plan-file', sessionId]
           });
         }
       } catch {

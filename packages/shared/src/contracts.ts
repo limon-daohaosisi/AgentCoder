@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+export const sessionVariantSchema = z.enum(['plan', 'build']);
+
+export type SessionVariant = z.infer<typeof sessionVariantSchema>;
+
 export const sessionStatusSchema = z.enum([
   'planning',
   'idle',
@@ -30,6 +34,7 @@ export const createWorkspaceInputSchema = z.object({
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceInputSchema>;
 
 export const createSessionInputSchema = z.object({
+  defaultVariant: sessionVariantSchema.optional(),
   goalText: z.string().trim().min(1),
   title: z.string().trim().min(1).optional(),
   workspaceId: z.string().trim().min(1)
@@ -38,7 +43,8 @@ export const createSessionInputSchema = z.object({
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>;
 
 export const submitSessionMessageInputSchema = z.object({
-  content: z.string().trim().min(1)
+  content: z.string().trim().min(1),
+  variant: sessionVariantSchema.optional()
 });
 
 export type SubmitSessionMessageInput = z.infer<

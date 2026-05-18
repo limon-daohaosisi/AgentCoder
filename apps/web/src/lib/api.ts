@@ -5,6 +5,8 @@ import type {
   CreateSessionInput,
   CreateWorkspaceInput,
   MessageDto,
+  SessionPlanFileDto,
+  SessionPlanBoardDto,
   ResumeSessionDto,
   SessionDto,
   SubmitSessionMessageInput,
@@ -107,6 +109,14 @@ export function createSession(input: CreateSessionInput) {
 
 export function getSession(sessionId: string) {
   return fetchData<SessionDto>(`/sessions/${sessionId}`);
+}
+
+export function getSessionPlanBoard(sessionId: string) {
+  return fetchData<SessionPlanBoardDto>(`/sessions/${sessionId}/plan-board`);
+}
+
+export function getSessionPlanFile(sessionId: string) {
+  return fetchData<SessionPlanFileDto>(`/sessions/${sessionId}/plan-file`);
 }
 
 export function listMessages(sessionId: string) {

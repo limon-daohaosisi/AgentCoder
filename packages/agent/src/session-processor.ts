@@ -13,7 +13,10 @@ import type { FinishReason, LanguageModelUsage, TextStreamPart } from 'ai';
 import { buildSessionCheckpoint } from './checkpoint.js';
 import type { AiSdkTurnRequest } from './context/schema.js';
 import type { StreamModelResponse } from './model-client.js';
-import { prepareToolExecution } from './tool-executor.js';
+import {
+  prepareToolExecution,
+  resolveToolApprovalMode
+} from './tool-executor.js';
 import type { ToolName } from './tools/types.js';
 
 type CreateApprovalInput = {
@@ -66,6 +69,10 @@ export type SessionProcessorDeps = {
   appendSessionEvent(event: SessionEvent): unknown;
   createId?: () => string;
   createMessage(input: CreateMessageInput): MessageDto;
+  getCurrentTaskContext?(sessionId: string): {
+    currentPlanId?: string;
+    currentTaskId?: string;
+  };
   createToolPartWithToolCall(input: {
     part: Extract<MessagePart, { type: 'tool' }>;
     toolCall: {
@@ -92,6 +99,7 @@ export type SessionProcessorDeps = {
   now?: () => string;
   persist?<T>(callback: () => T): T;
   prepareToolExecution?: typeof prepareToolExecution;
+  resolveToolApprovalMode?: typeof resolveToolApprovalMode;
   streamModelResponse: StreamModelResponse;
   updateMessageRuntime(input: UpdateMessageRuntimeInput): MessageDto | null;
   updateMessagePart(part: MessagePart): MessagePart | null;
@@ -347,10 +355,10 @@ export class SessionProcessor {
       };
     }
 
-    const approvalParts = state.toolParts.filter(
-      (part) =>
-        input.request.toolPolicies[part.toolName]?.approval === 'required'
-    );
+    const approvalParts = state.toolParts.filter((part) => {
+      const toolCall = state.toolCalls.get(part.id);
+      return toolCall?.requiresApproval === true;
+    });
     const [approvalPart] = approvalParts;
 
     if (approvalParts.length > 1) {
@@ -612,6 +620,16 @@ export class SessionProcessor {
     const toolCallId = this.createId();
     const partId = this.createId();
     const toolName = event.toolName as ToolName;
+    const approvalMode = await this.resolveToolApprovalMode({
+      rawInput: event.input as Record<string, unknown>,
+      sessionId: input.sessionId,
+      toolCallId,
+      toolName,
+      workspaceRoot: input.workspaceRoot
+    });
+    const currentTaskId = this.deps.getCurrentTaskContext?.(
+      input.sessionId
+    )?.currentTaskId;
     const toolPart: Extract<MessagePart, { type: 'tool' }> = {
       createdAt: now,
       id: partId,
@@ -645,12 +663,11 @@ export class SessionProcessor {
           providerMetadata: event.providerMetadata as
             | Record<string, unknown>
             | undefined,
-          requiresApproval: policy.approval === 'required',
+          requiresApproval: approvalMode === 'required',
           runId: input.runId,
           sessionId: input.sessionId,
-          status:
-            policy.approval === 'required' ? 'pending_approval' : 'pending',
-          taskId: null,
+          status: approvalMode === 'required' ? 'pending_approval' : 'pending',
+          taskId: currentTaskId ?? null,
           toolName,
           updatedAt: now
         }
@@ -718,7 +735,7 @@ export class SessionProcessor {
       sessionId: input.input.sessionId,
       status: 'pending',
       suggestedRuleJson: undefined,
-      taskId: undefined,
+      taskId: input.toolCall.taskId,
       toolCallId: input.part.toolCallId
     };
     const checkpoint = buildSessionCheckpoint({
@@ -727,6 +744,7 @@ export class SessionProcessor {
       messageId: input.part.messageId,
       modelToolCallId: input.part.modelToolCallId,
       partId: input.part.id,
+      taskId: input.toolCall.taskId,
       toolCallId: input.part.toolCallId
     });
 
@@ -870,6 +888,8 @@ export class SessionProcessor {
     }
 
     const message = this.persist(() => {
+      const currentTaskId =
+        this.deps.getCurrentTaskContext?.(sessionId)?.currentTaskId;
       const created = this.deps.createMessage({
         content: [],
         model: input?.request
@@ -882,7 +902,8 @@ export class SessionProcessor {
         runId,
         sessionId,
         status: 'running',
-        summary: input?.assistantMessage?.summary
+        summary: input?.assistantMessage?.summary,
+        taskId: currentTaskId
       });
 
       this.deps.appendSessionEvent({
@@ -975,5 +996,17 @@ export class SessionProcessor {
     workspaceRoot: string;
   }) {
     return (this.deps.prepareToolExecution ?? prepareToolExecution)(input);
+  }
+
+  private resolveToolApprovalMode(input: {
+    rawInput: Record<string, unknown>;
+    sessionId: string;
+    toolCallId: string;
+    toolName: ToolName;
+    workspaceRoot: string;
+  }) {
+    return (this.deps.resolveToolApprovalMode ?? resolveToolApprovalMode)(
+      input
+    );
   }
 }

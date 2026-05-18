@@ -1,6 +1,8 @@
 import type {
   ApprovalDto,
   MessagePart,
+  PlanExitApprovalPayload,
+  SessionVariant,
   SubmitSessionMessageResponse,
   ToolCallDto
 } from '@opencode/shared';
@@ -28,6 +30,7 @@ import { sessionResumeService } from '../session/resume-service.js';
 import { sessionEventService } from '../session-events/event-service.js';
 import { agentRunService } from './run-service.js';
 import { toolStateService } from './tool-state-service.js';
+import { planService } from '../session/plan-service.js';
 
 type ResolveApprovalContext =
   | {
@@ -38,6 +41,7 @@ type ResolveApprovalContext =
     }
   | {
       approval: ApprovalDto;
+      planExitMessage?: ReturnType<typeof messageService.createMessage>;
       runId: string;
       toolCall: ToolCallDto;
     };
@@ -45,7 +49,25 @@ type ResolveApprovalContext =
 type SubmitUserMessageInput = {
   content: string;
   sessionId: string;
+  variant?: SessionVariant;
 };
+
+function resolveMessageVariant(input: {
+  explicitVariant?: SessionVariant;
+  sessionDefaultVariant: SessionVariant;
+  sessionId: string;
+}) {
+  if (input.explicitVariant) {
+    return input.explicitVariant;
+  }
+
+  const lastUserVariant = messageService
+    .listMessages(input.sessionId)
+    .filter((message) => message.role === 'user')
+    .at(-1)?.runtime?.variant;
+
+  return lastUserVariant ?? input.sessionDefaultVariant ?? 'plan';
+}
 
 type ManualCompactInput = {
   sessionId: string;
@@ -81,9 +103,20 @@ export class SessionInteractionService {
       async () => {
         return Database.transaction(() => {
           const run = agentRunService.createRun({ sessionId: input.sessionId });
+          const variant = resolveMessageVariant({
+            explicitVariant: input.variant,
+            sessionDefaultVariant: session.defaultVariant,
+            sessionId: input.sessionId
+          });
+
+          if (variant === 'plan') {
+            planService.getOrCreateCurrentPlan(input.sessionId);
+          }
+
           const normalized = normalizePrompt({
             content: input.content,
-            sessionId: input.sessionId
+            sessionId: input.sessionId,
+            variant
           });
           const message = messageService.createMessage({
             ...normalized.message,
@@ -353,6 +386,71 @@ export class SessionInteractionService {
                   }
                 })
               : null;
+          const completedPlanExitUpdate =
+            input.decision === 'approved' &&
+            updatedApproval.kind === 'plan_exit'
+              ? toolStateService.updateToolPartWithToolCall({
+                  part: {
+                    ...resume.part,
+                    state: {
+                      completedAt: now,
+                      input: resume.part.state.input,
+                      metadata: {
+                        approvalId: updatedApproval.id,
+                        planFilePath: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planFilePath,
+                        planId: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planId
+                      },
+                      outputText:
+                        'Plan approved. Exiting planning mode and starting build mode.',
+                      payload: { ok: true, planExitApproved: true },
+                      startedAt: now,
+                      status: 'completed'
+                    }
+                  },
+                  toolCall: {
+                    completedAt: now,
+                    id: resume.part.toolCallId,
+                    result: { ok: true, planExitApproved: true },
+                    status: 'completed',
+                    updatedAt: now
+                  }
+                })
+              : null;
+
+          const planExitMessage =
+            input.decision === 'approved' &&
+            updatedApproval.kind === 'plan_exit'
+              ? messageService.createMessage({
+                  content: [
+                    {
+                      metadata: {
+                        approvalId: updatedApproval.id,
+                        planFilePath: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planFilePath,
+                        planId: (
+                          updatedApproval.payload as PlanExitApprovalPayload
+                        ).planId
+                      },
+                      synthetic: true,
+                      text: 'The plan has been approved. Begin implementation according to the current plan file and task list.',
+                      type: 'text'
+                    }
+                  ],
+                  role: 'user',
+                  runId,
+                  runtime: {
+                    format: { type: 'text' },
+                    variant: 'build'
+                  },
+                  sessionId: approval.sessionId,
+                  status: 'completed'
+                })
+              : undefined;
 
           const updatedSession = sessionService.updateSessionRuntimeState({
             lastCheckpoint: null,
@@ -386,6 +484,30 @@ export class SessionInteractionService {
             });
           }
 
+          if (completedPlanExitUpdate) {
+            sessionEventService.append({
+              messageId: completedPlanExitUpdate.part.messageId,
+              part: completedPlanExitUpdate.part,
+              runId,
+              sessionId: approval.sessionId,
+              type: 'message.part.updated'
+            });
+            sessionEventService.append({
+              runId,
+              sessionId: approval.sessionId,
+              toolCall: completedPlanExitUpdate.toolCall,
+              type: 'tool.completed'
+            });
+          }
+
+          if (planExitMessage) {
+            sessionEventService.append({
+              message: planExitMessage,
+              sessionId: approval.sessionId,
+              type: 'message.created'
+            });
+          }
+
           if (updatedSession) {
             sessionEventService.append({
               runId,
@@ -399,8 +521,12 @@ export class SessionInteractionService {
             ctx: {
               approval: updatedApproval,
               ...(input.decision === 'approved' ? { part: resume.part } : {}),
+              ...(planExitMessage ? { planExitMessage } : {}),
               runId,
-              toolCall: rejectedToolUpdate?.toolCall ?? toolCall
+              toolCall:
+                completedPlanExitUpdate?.toolCall ??
+                rejectedToolUpdate?.toolCall ??
+                toolCall
             },
             runId
           };
@@ -408,6 +534,15 @@ export class SessionInteractionService {
       },
       async (ctx, signal) => {
         if (input.decision === 'rejected') {
+          await this.runtimeLifecycle.startPromptRun({
+            runId: ctx.runId,
+            sessionId: approval.sessionId,
+            signal
+          });
+          return;
+        }
+
+        if (ctx.approval.kind === 'plan_exit') {
           await this.runtimeLifecycle.startPromptRun({
             runId: ctx.runId,
             sessionId: approval.sessionId,

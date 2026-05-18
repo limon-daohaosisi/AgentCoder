@@ -16,11 +16,6 @@ table "tasks" {
     null = false
   }
 
-  column "parent_task_id" {
-    type = text
-    null = true
-  }
-
   column "position" {
     type = integer
     null = false
@@ -86,12 +81,6 @@ table "tasks" {
   foreign_key "tasks_plan_id_fkey" {
     columns     = [column.plan_id]
     ref_columns = [table.plans.column.id]
-    on_delete   = CASCADE
-  }
-
-  foreign_key "tasks_parent_task_id_fkey" {
-    columns     = [column.parent_task_id]
-    ref_columns = [table.tasks.column.id]
     on_delete   = CASCADE
   }
 

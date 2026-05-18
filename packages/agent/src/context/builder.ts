@@ -27,6 +27,9 @@ function getPreviousUserRuntime(messages: MessageWithParts[]) {
 
 export type ContextBuilderDeps = {
   getSession(sessionId: string): SessionDto | null;
+  getSessionPlanContext?(sessionId: string): {
+    filePath?: string;
+  };
   listPromptMemorySources?(input: {
     agentName: string;
     lastUserRuntime?: MessageWithParts['runtime'];
@@ -362,6 +365,7 @@ export class ContextBuilder {
       memorySources,
       runtimeInstructionBlocks: buildRuntimeInstructionBlocks({
         lastUserRuntime: lastUserMessage.runtime,
+        planContext: this.deps.getSessionPlanContext?.(input.sessionId),
         previousUserRuntime
       })
     });

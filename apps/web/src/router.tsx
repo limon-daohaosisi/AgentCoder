@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
+import type { SessionVariant } from '@opencode/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Link,
@@ -24,6 +25,8 @@ import {
   createSession,
   createWorkspace,
   getSession,
+  getSessionPlanFile,
+  getSessionPlanBoard,
   getWorkspaceTree,
   listMessages,
   listSessions,
@@ -99,12 +102,12 @@ function HomePage() {
         </p>
         <h1 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight text-ink">
           Workspace 与 Session
-          顶层数据已经接到真实后端，执行态内容仍保持原型占位。
+          顶层数据与任务板已经接到真实后端，时间线和详情仍有原型占位。
         </h1>
         <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
           现在可以直接创建 workspace、查看已有 session、进入真实的文件树与
-          session
-          current-state。任务板、时间线和审批详情会在后续阶段继续替换成真实数据。
+          session current-state。任务板已经开始消费真实 plan/task
+          数据，时间线和审批详情会在后续阶段继续补齐更多真实内容。
         </p>
 
         <form
@@ -223,6 +226,8 @@ function EmptyWorkspaceState() {
 function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [composerVariant, setComposerVariant] =
+    useState<SessionVariant>('plan');
   const stream = useSessionStream(props.sessionId, props.workspaceId);
   const workspaceListQuery = useQuery({
     queryFn: listWorkspaces,
@@ -243,6 +248,16 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     queryFn: () => getSession(props.sessionId!),
     queryKey: ['session', props.sessionId]
   });
+  const planBoardQuery = useQuery({
+    enabled: Boolean(props.sessionId),
+    queryFn: () => getSessionPlanBoard(props.sessionId!),
+    queryKey: ['session-plan-board', props.sessionId]
+  });
+  const planFileQuery = useQuery({
+    enabled: Boolean(props.sessionId),
+    queryFn: () => getSessionPlanFile(props.sessionId!),
+    queryKey: ['session-plan-file', props.sessionId]
+  });
   const resumeQuery = useQuery({
     enabled: Boolean(props.sessionId),
     queryFn: () => resumeSession(props.sessionId!),
@@ -254,7 +269,11 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     queryKey: ['messages', props.sessionId]
   });
   const createSessionMutation = useMutation({
-    mutationFn: (input: { goalText: string; title?: string }) =>
+    mutationFn: (input: {
+      defaultVariant: SessionVariant;
+      goalText: string;
+      title?: string;
+    }) =>
       createSession({
         ...input,
         workspaceId: props.workspaceId
@@ -276,12 +295,12 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     }
   });
   const submitMessageMutation = useMutation({
-    mutationFn: (content: string) => {
+    mutationFn: (input: { content: string; variant: SessionVariant }) => {
       if (!props.sessionId) {
         throw new Error('当前还没有选中的 session');
       }
 
-      return submitSessionMessage(props.sessionId, { content });
+      return submitSessionMessage(props.sessionId, input);
     },
     onSuccess: async (response) => {
       if (!props.sessionId) {
@@ -304,6 +323,12 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
 
       await queryClient.invalidateQueries({
         queryKey: ['session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-board', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-file', props.sessionId]
       });
       await queryClient.invalidateQueries({
         queryKey: ['resume-session', props.sessionId]
@@ -333,6 +358,12 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
         queryKey: ['session', props.sessionId]
       });
       await queryClient.invalidateQueries({
+        queryKey: ['session-plan-board', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-file', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
         queryKey: ['resume-session', props.sessionId]
       });
       await queryClient.invalidateQueries({
@@ -357,6 +388,12 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
 
       await queryClient.invalidateQueries({
         queryKey: ['messages', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-board', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-file', props.sessionId]
       });
       await queryClient.invalidateQueries({
         queryKey: ['resume-session', props.sessionId]
@@ -386,6 +423,23 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     });
   }, [navigate, props.sessionId, props.workspaceId, sessionListQuery.data]);
 
+  const currentSession =
+    sessionQuery.data ??
+    sessionListQuery.data?.find((session) => session.id === props.sessionId);
+
+  useEffect(() => {
+    if (!currentSession) {
+      setComposerVariant('plan');
+      return;
+    }
+
+    const lastUserVariant = [...(messagesQuery.data ?? [])]
+      .reverse()
+      .find((message) => message.role === 'user')?.runtime?.variant;
+
+    setComposerVariant(lastUserVariant ?? currentSession.defaultVariant);
+  }, [currentSession, messagesQuery.data]);
+
   if (!workspace && workspaceListQuery.isLoading) {
     return (
       <div className="min-h-screen px-4 py-4 md:px-6">
@@ -412,11 +466,11 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     workspaceTreeQuery.data ?? [],
     workspace.rootPath
   );
-  const currentSession =
-    sessionQuery.data ??
-    sessionListQuery.data?.find((session) => session.id === props.sessionId);
-  const currentSessionView = currentSession
-    ? buildSessionView(currentSession, fileTree, resumeQuery.data)
+
+  const currentSessionData = planBoardQuery.data?.session ?? currentSession;
+
+  const currentSessionView = currentSessionData
+    ? buildSessionView(currentSessionData, fileTree, resumeQuery.data)
     : null;
   const liveMessages = projectMessages(messagesQuery.data ?? [], stream.events);
   const liveTimeline = buildTimelineItemsFromEvents(stream.events);
@@ -425,10 +479,11 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     buildWorkspaceDetailPane(workspace, fileTree);
   const timelineItems = liveTimeline;
   const canSubmitMessage =
-    currentSession?.status === 'planning' || currentSession?.status === 'idle';
+    currentSessionData?.status === 'planning' ||
+    currentSessionData?.status === 'idle';
   const canCancelRun =
-    currentSession?.status === 'executing' ||
-    currentSession?.status === 'waiting_approval';
+    currentSessionData?.status === 'executing' ||
+    currentSessionData?.status === 'waiting_approval';
   const pendingApprovals = resumeQuery.data?.pendingApprovals ?? [];
   const isComposerDisabled =
     !props.sessionId ||
@@ -446,7 +501,7 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
       return;
     }
 
-    submitMessageMutation.mutate(content);
+    submitMessageMutation.mutate({ content, variant: composerVariant });
   }
 
   return (
@@ -505,9 +560,20 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
             </section>
           ) : null}
 
+          {planBoardQuery.isError ? (
+            <section className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-panel">
+              {getErrorMessage(planBoardQuery.error)}
+            </section>
+          ) : null}
+
           {currentSessionView ? (
             <>
-              <TaskBoard session={currentSessionView} />
+              <TaskBoard
+                board={planBoardQuery.data}
+                isLoading={planBoardQuery.isLoading || planFileQuery.isLoading}
+                planFile={planFileQuery.data}
+                session={currentSessionData!}
+              />
 
               <section className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
                 <div>
@@ -551,7 +617,9 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                     submitMessageMutation.isPending ||
                     manualCompactMutation.isPending
                   }
+                  onVariantChange={setComposerVariant}
                   onSubmit={handleComposerSubmit}
+                  variant={composerVariant}
                 />
               </section>
 
@@ -601,6 +669,12 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                     });
                     void queryClient.invalidateQueries({
                       queryKey: ['session', currentSession.id]
+                    });
+                    void queryClient.invalidateQueries({
+                      queryKey: ['session-plan-board', currentSession.id]
+                    });
+                    void queryClient.invalidateQueries({
+                      queryKey: ['session-plan-file', currentSession.id]
                     });
                   }}
                 />

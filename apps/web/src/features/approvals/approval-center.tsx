@@ -1,4 +1,4 @@
-import type { ApprovalDto } from '@opencode/shared';
+import type { ApprovalDto, PlanExitApprovalPayload } from '@opencode/shared';
 import { approveApproval, rejectApproval } from '../../lib/api';
 
 type ApprovalCenterProps = {
@@ -54,12 +54,51 @@ export function ApprovalCenter({ approvals, onResolved }: ApprovalCenterProps) {
                 </button>
               </div>
             </div>
-            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-sans text-xs leading-6 text-amber-950">
-              {JSON.stringify(approval.payload, null, 2)}
-            </pre>
+            {approval.kind === 'plan_exit' ? (
+              <PlanExitApprovalBody
+                payload={approval.payload as PlanExitApprovalPayload}
+              />
+            ) : (
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-sans text-xs leading-6 text-amber-950">
+                {JSON.stringify(approval.payload, null, 2)}
+              </pre>
+            )}
           </article>
         ))}
       </div>
     </section>
+  );
+}
+
+function PlanExitApprovalBody({
+  payload
+}: {
+  payload: PlanExitApprovalPayload;
+}) {
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="rounded-2xl bg-white/70 px-3 py-2 text-xs text-amber-950">
+        <p className="font-semibold uppercase tracking-[0.18em] text-amber-700">
+          Plan File Path
+        </p>
+        <p className="mt-2 break-all">{payload.planFilePath}</p>
+      </div>
+      {payload.summary ? (
+        <div className="rounded-2xl bg-white/70 px-3 py-2 text-sm text-amber-950">
+          <p className="font-semibold uppercase tracking-[0.18em] text-amber-700">
+            Summary
+          </p>
+          <p className="mt-2 leading-6">{payload.summary}</p>
+        </div>
+      ) : null}
+      <div className="rounded-2xl bg-white/70 px-3 py-2 text-sm text-amber-950">
+        <p className="font-semibold uppercase tracking-[0.18em] text-amber-700">
+          Plan Content
+        </p>
+        <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-6 text-amber-950">
+          {payload.planContent}
+        </pre>
+      </div>
+    </div>
   );
 }

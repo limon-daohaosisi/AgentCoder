@@ -55,6 +55,7 @@ function mapToolCallRow(row: ToolCallRow): ToolCallDto {
     runId: mapNullableString(row.runId),
     sessionId: row.sessionId,
     status: row.status as ToolCallStatus,
+    taskId: mapNullableString(row.taskId),
     toolName: row.toolName as ToolCallDto['toolName'],
     updatedAt: row.updatedAt
   };
