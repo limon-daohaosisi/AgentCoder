@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SessionVariant } from '@opencode/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,39 +12,32 @@ import {
   useParams
 } from '@tanstack/react-router';
 import { AppShell } from './components/app-shell';
-import { ApprovalCenter } from './features/approvals/approval-center';
 import { Composer } from './features/chat/composer';
 import { MessageList } from './features/chat/message-list';
-import { TimelinePanel } from './features/chat/timeline-panel';
-import { DetailPane } from './features/details/detail-pane';
 import { SessionList } from './features/sessions/session-list';
 import { TaskBoard } from './features/tasks/task-board';
 import { useSessionStream } from './hooks/use-session-stream';
 import {
+  approveApproval,
   cancelCurrentRun,
   createSession,
   createWorkspace,
   getSession,
   getSessionPlanFile,
   getSessionPlanBoard,
-  getWorkspaceTree,
   listMessages,
   listSessions,
   listWorkspaces,
   manualCompact,
+  rejectApproval,
   resumeSession,
   submitSessionMessage
 } from './lib/api';
 import {
-  buildTimelineItemsFromEvents,
-  buildSessionView,
-  buildWorkspaceDetailPane,
-  buildWorkspaceTree,
-  formatSessionTimestamp
+  formatSessionTimestamp,
+  getSessionComposerHint
 } from './lib/session-view';
 import { projectMessages } from './lib/message-projection';
-
-const MODEL_LABEL = 'gpt-4.1-mini';
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : '请求失败';
@@ -228,6 +221,10 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
   const queryClient = useQueryClient();
   const [composerVariant, setComposerVariant] =
     useState<SessionVariant>('plan');
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(false);
+  const previousSessionIdRef = useRef<string | undefined>(props.sessionId);
   const stream = useSessionStream(props.sessionId, props.workspaceId);
   const workspaceListQuery = useQuery({
     queryFn: listWorkspaces,
@@ -237,11 +234,6 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     enabled: props.workspaceId.length > 0,
     queryFn: () => listSessions(props.workspaceId),
     queryKey: ['sessions', props.workspaceId]
-  });
-  const workspaceTreeQuery = useQuery({
-    enabled: props.workspaceId.length > 0,
-    queryFn: () => getWorkspaceTree(props.workspaceId),
-    queryKey: ['workspace-tree', props.workspaceId]
   });
   const sessionQuery = useQuery({
     enabled: Boolean(props.sessionId),
@@ -440,6 +432,14 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     setComposerVariant(lastUserVariant ?? currentSession.defaultVariant);
   }, [currentSession, messagesQuery.data]);
 
+  useEffect(() => {
+    if (previousSessionIdRef.current !== props.sessionId) {
+      previousSessionIdRef.current = props.sessionId;
+      shouldStickToBottomRef.current = true;
+      forceScrollToBottomRef.current = true;
+    }
+  }, [props.sessionId]);
+
   if (!workspace && workspaceListQuery.isLoading) {
     return (
       <div className="min-h-screen px-4 py-4 md:px-6">
@@ -462,22 +462,8 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     );
   }
 
-  const fileTree = buildWorkspaceTree(
-    workspaceTreeQuery.data ?? [],
-    workspace.rootPath
-  );
-
   const currentSessionData = planBoardQuery.data?.session ?? currentSession;
-
-  const currentSessionView = currentSessionData
-    ? buildSessionView(currentSessionData, fileTree, resumeQuery.data)
-    : null;
   const liveMessages = projectMessages(messagesQuery.data ?? [], stream.events);
-  const liveTimeline = buildTimelineItemsFromEvents(stream.events);
-  const detailPaneData =
-    currentSessionView?.detailPane ??
-    buildWorkspaceDetailPane(workspace, fileTree);
-  const timelineItems = liveTimeline;
   const canSubmitMessage =
     currentSessionData?.status === 'planning' ||
     currentSessionData?.status === 'idle';
@@ -491,11 +477,43 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     manualCompactMutation.isPending ||
     !canSubmitMessage;
 
+  useEffect(() => {
+    const container = messageScrollRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const stickToBottom =
+      forceScrollToBottomRef.current || shouldStickToBottomRef.current;
+
+    if (!stickToBottom) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      const node = messageScrollRef.current;
+
+      if (!node) {
+        return;
+      }
+
+      node.scrollTop = node.scrollHeight;
+      shouldStickToBottomRef.current = true;
+      forceScrollToBottomRef.current = false;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [liveMessages]);
+
   function isManualCompactCommand(content: string) {
     return content.trimStart().startsWith('/compact');
   }
 
   function handleComposerSubmit(content: string) {
+    forceScrollToBottomRef.current = true;
+    shouldStickToBottomRef.current = true;
+
     if (isManualCompactCommand(content)) {
       manualCompactMutation.mutate();
       return;
@@ -504,36 +522,56 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     submitMessageMutation.mutate({ content, variant: composerVariant });
   }
 
-  return (
-    <div className="min-h-screen px-4 py-4 md:px-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-white/60 bg-white/80 px-5 py-4 shadow-panel backdrop-blur">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
-            Workspace
-          </p>
-          <h1 className="text-xl font-semibold text-ink">{workspace.name}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {currentSession?.title ??
-              '选择一个 session，或先在左侧创建新的复杂任务'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-          <span className="rounded-full border border-sand bg-mist px-3 py-1.5">
-            Model: {MODEL_LABEL}
-          </span>
-          <span className="rounded-full border border-sand bg-mist px-3 py-1.5">
-            SSE: {stream.status}
-          </span>
-          <Link
-            className="rounded-full bg-ink px-4 py-1.5 font-semibold text-white transition hover:bg-slate-800"
-            to="/"
-          >
-            Switch Workspace
-          </Link>
-        </div>
-      </div>
+  function handleMessageScroll() {
+    const container = messageScrollRef.current;
 
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_420px]">
+    if (!container) {
+      return;
+    }
+
+    const distanceToBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+
+    shouldStickToBottomRef.current = distanceToBottom <= 24;
+  }
+
+  async function handleApprovalAction(
+    approvalId: string,
+    decision: 'approve' | 'reject'
+  ) {
+    if (decision === 'approve') {
+      await approveApproval(approvalId);
+    } else {
+      await rejectApproval(approvalId);
+    }
+
+    if (!props.sessionId) {
+      return;
+    }
+
+    await queryClient.invalidateQueries({
+      queryKey: ['messages', props.sessionId]
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ['resume-session', props.sessionId]
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ['session', props.sessionId]
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ['session-plan-board', props.sessionId]
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ['session-plan-file', props.sessionId]
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ['sessions', props.workspaceId]
+    });
+  }
+
+  return (
+    <div className="h-screen overflow-hidden bg-[#1f1f1f] text-white">
+      <div className="grid h-screen xl:grid-cols-[340px_minmax(0,1fr)_360px]">
         <SessionList
           currentSessionId={currentSession?.id}
           errorMessage={
@@ -542,77 +580,96 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
               : undefined
           }
           isCreating={createSessionMutation.isPending}
+          onSwitchWorkspace={() => {
+            void navigate({ to: '/' });
+          }}
           onCreateSession={(input) => createSessionMutation.mutate(input)}
           sessions={sessionListQuery.data ?? []}
+          workspaceName={workspace.name}
+          workspaceRootPath={workspace.rootPath}
           workspaceId={workspace.id}
         />
 
-        <div className="space-y-4">
+        <div className="flex h-screen min-h-0 flex-col bg-[#242424]">
+          <div className="px-5 py-5">
+            <p className="text-sm text-white/60">
+              {currentSession?.title ??
+                '选择一个 session，或在左侧创建新的复杂任务'}
+            </p>
+          </div>
+
           {sessionListQuery.isError ? (
-            <section className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-panel">
+            <section className="mx-5 mt-5 rounded-[16px] border border-red-400/40 bg-red-500/10 p-5 text-sm text-red-200">
               {getErrorMessage(sessionListQuery.error)}
             </section>
           ) : null}
 
           {sessionQuery.isError ? (
-            <section className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-panel">
+            <section className="mx-5 mt-5 rounded-[16px] border border-red-400/40 bg-red-500/10 p-5 text-sm text-red-200">
               {getErrorMessage(sessionQuery.error)}
             </section>
           ) : null}
 
           {planBoardQuery.isError ? (
-            <section className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-panel">
+            <section className="mx-5 mt-5 rounded-[16px] border border-red-400/40 bg-red-500/10 p-5 text-sm text-red-200">
               {getErrorMessage(planBoardQuery.error)}
             </section>
           ) : null}
 
-          {currentSessionView ? (
+          {currentSessionData ? (
             <>
-              <TaskBoard
-                board={planBoardQuery.data}
-                isLoading={planBoardQuery.isLoading || planFileQuery.isLoading}
-                planFile={planFileQuery.data}
-                session={currentSessionData!}
-              />
+              <div
+                className="console-scroll flex-1 overflow-y-auto px-5 py-5"
+                onScroll={handleMessageScroll}
+                ref={messageScrollRef}
+              >
+                <MessageList
+                  approvals={pendingApprovals}
+                  messages={liveMessages}
+                  onApprove={(approvalId) =>
+                    void handleApprovalAction(approvalId, 'approve')
+                  }
+                  onReject={(approvalId) =>
+                    void handleApprovalAction(approvalId, 'reject')
+                  }
+                  planFile={planFileQuery.data}
+                />
+              </div>
 
-              <section className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
-                    Session Messages
-                  </p>
-                  <h2 className="text-lg font-semibold text-ink">
-                    消息与 Part 流
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    这里直接消费
-                    `MessageDto.content`，会实时显示文本、推理、工具、附件和
-                    patch part。
-                  </p>
-                </div>
-
-                <div className="mt-5">
-                  <MessageList messages={liveMessages} />
-                </div>
-
+              <div className="shrink-0 px-5 pb-4">
                 {cancelCurrentRunMutation.isError ? (
-                  <p className="mt-4 text-sm text-red-700">
+                  <p className="mb-3 text-sm text-red-200">
                     {getErrorMessage(cancelCurrentRunMutation.error)}
                   </p>
                 ) : null}
                 {submitMessageMutation.isError ? (
-                  <p className="mt-4 text-sm text-red-700">
+                  <p className="mb-3 text-sm text-red-200">
                     {getErrorMessage(submitMessageMutation.error)}
                   </p>
                 ) : null}
                 {manualCompactMutation.isError ? (
-                  <p className="mt-4 text-sm text-red-700">
+                  <p className="mb-3 text-sm text-red-200">
                     {getErrorMessage(manualCompactMutation.error)}
                   </p>
                 ) : null}
+                {canCancelRun ? (
+                  <div className="mb-3 flex justify-end">
+                    <button
+                      className="rounded-full border border-red-300/25 bg-red-300/10 px-3 py-1.5 text-xs font-semibold text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={cancelCurrentRunMutation.isPending}
+                      onClick={() => cancelCurrentRunMutation.mutate()}
+                      type="button"
+                    >
+                      {cancelCurrentRunMutation.isPending
+                        ? '取消中...'
+                        : '取消当前运行'}
+                    </button>
+                  </div>
+                ) : null}
                 <Composer
-                  defaultValue={currentSessionView.composerValue}
+                  defaultValue=""
                   disabled={isComposerDisabled}
-                  hint={currentSessionView.composerHint}
+                  hint={getSessionComposerHint(currentSessionData.status)}
                   isSubmitting={
                     submitMessageMutation.isPending ||
                     manualCompactMutation.isPending
@@ -621,71 +678,25 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                   onSubmit={handleComposerSubmit}
                   variant={composerVariant}
                 />
-              </section>
-
-              <section className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
-                      Execution Timeline
-                    </p>
-                    <h2 className="text-lg font-semibold text-ink">
-                      执行时间线
-                    </h2>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="rounded-full border border-sand bg-mist px-3 py-1.5 text-sm text-slate-600">
-                      {currentSessionView.pendingApprovals
-                        ? `${currentSessionView.pendingApprovals} 个待审批动作`
-                        : '当前无待审批动作'}
-                    </div>
-                    {canCancelRun ? (
-                      <button
-                        className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={cancelCurrentRunMutation.isPending}
-                        onClick={() => cancelCurrentRunMutation.mutate()}
-                        type="button"
-                      >
-                        {cancelCurrentRunMutation.isPending
-                          ? '取消中...'
-                          : '取消当前运行'}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <TimelinePanel items={timelineItems} />
-              </section>
-
-              {pendingApprovals.length > 0 && currentSession ? (
-                <ApprovalCenter
-                  approvals={pendingApprovals}
-                  onResolved={() => {
-                    void queryClient.invalidateQueries({
-                      queryKey: ['messages', currentSession.id]
-                    });
-                    void queryClient.invalidateQueries({
-                      queryKey: ['resume-session', currentSession.id]
-                    });
-                    void queryClient.invalidateQueries({
-                      queryKey: ['session', currentSession.id]
-                    });
-                    void queryClient.invalidateQueries({
-                      queryKey: ['session-plan-board', currentSession.id]
-                    });
-                    void queryClient.invalidateQueries({
-                      queryKey: ['session-plan-file', currentSession.id]
-                    });
-                  }}
-                />
-              ) : null}
+              </div>
             </>
           ) : (
-            <EmptyWorkspaceState />
+            <div className="p-5">
+              <EmptyWorkspaceState />
+            </div>
           )}
         </div>
 
-        <DetailPane data={detailPaneData} />
+        {currentSessionData ? (
+          <TaskBoard
+            board={planBoardQuery.data}
+            isLoading={planBoardQuery.isLoading || planFileQuery.isLoading}
+            planFile={planFileQuery.data}
+            session={currentSessionData}
+          />
+        ) : (
+          <div className="bg-[#333333]" />
+        )}
       </div>
     </div>
   );

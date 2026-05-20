@@ -27,6 +27,27 @@ export const taskUpdateInputSchema = z
   })
   .strict();
 
+export const taskUpdateExecutionOnlyInputSchema = z
+  .object({
+    completedAt: z.string().trim().min(1).nullable().optional(),
+    lastErrorText: z.string().trim().min(1).nullable().optional(),
+    startedAt: z.string().trim().min(1).nullable().optional(),
+    status: z
+      .enum([
+        'todo',
+        'ready',
+        'running',
+        'blocked',
+        'waiting_approval',
+        'done',
+        'failed'
+      ])
+      .optional(),
+    summaryText: z.string().trim().min(1).nullable().optional(),
+    taskId: z.string().trim().min(1)
+  })
+  .strict();
+
 export const taskUpdateToolDefinition: ToolDefinition<
   typeof taskUpdateInputSchema,
   {

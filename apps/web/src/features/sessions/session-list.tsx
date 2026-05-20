@@ -4,42 +4,25 @@ import type { SessionDto, SessionVariant } from '@opencode/shared';
 import { Link } from '@tanstack/react-router';
 import {
   buildSessionExcerpt,
-  formatSessionTimestamp
+  formatSessionTimestamp,
+  getSessionStateLabel
 } from '../../lib/session-view';
 
 type SessionListProps = {
   currentSessionId?: string;
   errorMessage?: string;
   isCreating?: boolean;
+  onSwitchWorkspace?: () => void;
   onCreateSession: (input: {
     defaultVariant: SessionVariant;
     goalText: string;
     title?: string;
   }) => void;
   sessions: SessionDto[];
+  workspaceName: string;
+  workspaceRootPath: string;
   workspaceId: string;
 };
-
-function sessionStateLabel(status: SessionDto['status']) {
-  switch (status) {
-    case 'planning':
-      return '规划中';
-    case 'idle':
-      return '空闲';
-    case 'executing':
-      return '执行中';
-    case 'waiting_approval':
-      return '待审批';
-    case 'blocked':
-      return '已阻塞';
-    case 'completed':
-      return '已完成';
-    case 'archived':
-      return '已归档';
-    default:
-      return status;
-  }
-}
 
 function sessionProgressLabel(status: SessionDto['status']) {
   switch (status) {
@@ -64,8 +47,11 @@ export function SessionList({
   currentSessionId,
   errorMessage,
   isCreating = false,
+  onSwitchWorkspace,
   onCreateSession,
   sessions,
+  workspaceName,
+  workspaceRootPath,
   workspaceId
 }: SessionListProps) {
   const [goalText, setGoalText] = useState('');
@@ -93,41 +79,50 @@ export function SessionList({
   }
 
   return (
-    <aside className="rounded-[28px] border border-white/60 bg-white/80 p-5 shadow-panel backdrop-blur">
-      <div className="mb-4 flex items-center justify-between">
+    <aside className="flex h-screen min-h-0 flex-col overflow-hidden bg-[#2d2d2d] text-white">
+      <div className="px-5 py-5">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
-            Complex Tasks
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/45">
+            Workspace
           </p>
-          <h2 className="text-lg font-semibold text-ink">复杂任务</h2>
+          <h2 className="mt-1 text-lg font-semibold">{workspaceName}</h2>
+          <p className="mt-2 text-sm leading-6 text-white/45">
+            {workspaceRootPath}
+          </p>
         </div>
+        {onSwitchWorkspace ? (
+          <button
+            className="mt-4 rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:bg-white/10"
+            onClick={onSwitchWorkspace}
+            type="button"
+          >
+            Switch Workspace
+          </button>
+        ) : null}
         <button
-          className="rounded-full border border-sand bg-mist px-3 py-1.5 text-xs font-semibold text-ink"
+          className="mt-4 h-10 w-full rounded-[12px] bg-[#d9d9d9] px-4 text-sm font-semibold text-black transition hover:bg-white"
           onClick={() => setIsComposerOpen((currentValue) => !currentValue)}
           type="button"
         >
-          新建任务
+          {isComposerOpen ? '关闭新建' : '新增 session'}
         </button>
       </div>
 
       {isComposerOpen ? (
-        <form
-          className="mb-4 space-y-3 rounded-[24px] border border-sand bg-mist/80 p-4"
-          onSubmit={handleSubmit}
-        >
+        <form className="px-5 py-4" onSubmit={handleSubmit}>
           <input
-            className="w-full rounded-2xl border border-white bg-white px-4 py-3 text-sm text-ink outline-none"
+            className="w-full rounded-[14px] border border-white/10 bg-[#1f1f1f] px-4 py-3 text-sm text-white outline-none placeholder:text-white/35"
             onChange={(event) => setTitle(event.target.value)}
             placeholder="可选标题"
             value={title}
           />
           <textarea
-            className="min-h-28 w-full resize-none rounded-2xl border border-white bg-white px-4 py-3 text-sm text-ink outline-none"
+            className="mt-3 min-h-24 w-full resize-none rounded-[14px] border border-white/10 bg-[#1f1f1f] px-4 py-3 text-sm text-white outline-none placeholder:text-white/35"
             onChange={(event) => setGoalText(event.target.value)}
             placeholder="描述这个复杂任务的目标"
             value={goalText}
           />
-          <div className="inline-flex rounded-full border border-sand bg-white p-1 text-xs font-semibold text-slate-600">
+          <div className="mt-3 inline-flex rounded-full border border-white/10 bg-[#1f1f1f] p-1 text-xs font-semibold text-white/55">
             {(['plan', 'build'] as const).map((variant) => {
               const active = variant === defaultVariant;
 
@@ -135,8 +130,8 @@ export function SessionList({
                 <button
                   className={
                     active
-                      ? 'rounded-full bg-ink px-3 py-1.5 text-white'
-                      : 'rounded-full px-3 py-1.5 text-slate-600'
+                      ? 'rounded-full bg-[#d9d9d9] px-3 py-1.5 text-black'
+                      : 'rounded-full px-3 py-1.5 text-white/55'
                   }
                   key={variant}
                   onClick={() => setDefaultVariant(variant)}
@@ -147,12 +142,12 @@ export function SessionList({
               );
             })}
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs leading-5 text-slate-500">
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-xs leading-5 text-white/40">
               `goalText` 会直接写入 session current-state。
             </p>
             <button
-              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full bg-[#d9d9d9] px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isCreating || goalText.trim().length === 0}
               type="submit"
             >
@@ -163,47 +158,47 @@ export function SessionList({
       ) : null}
 
       {errorMessage ? (
-        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mx-5 my-4 rounded-[14px] border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {errorMessage}
         </div>
       ) : null}
 
-      <div className="space-y-3">
+      <div className="console-scroll flex-1 space-y-2 overflow-y-auto px-4 py-4">
         {sessions.map((session) => (
           <Link
             key={session.id}
             className={
               session.id === currentSessionId
-                ? 'block rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm transition'
-                : 'block rounded-2xl border border-sand bg-mist p-4 transition hover:border-amber-300 hover:bg-amber-50'
+                ? 'block rounded-[14px] border border-white/20 bg-[#1f1f1f] px-4 py-3 transition'
+                : 'block rounded-[14px] border border-transparent bg-transparent px-4 py-3 transition hover:border-white/10 hover:bg-[#1f1f1f]'
             }
             to="/workspace/$workspaceId/session/$sessionId"
             params={{ sessionId: session.id, workspaceId }}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-medium text-ink">{session.title}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
+                <p className="font-medium text-white">{session.title}</p>
+                <p className="mt-2 text-sm leading-6 text-white/45">
                   {buildSessionExcerpt(session.goalText)}
                 </p>
               </div>
-              <span className="rounded-full bg-white px-2 py-1 text-xs text-slate-500">
+              <span className="rounded-full bg-white/6 px-2 py-1 text-[11px] text-white/40">
                 {formatSessionTimestamp(session.updatedAt)}
               </span>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full border border-white bg-white/80 px-3 py-1.5 text-slate-600">
-                {sessionStateLabel(session.status)}
+              <span className="rounded-full border border-white/8 bg-white/6 px-3 py-1.5 text-white/60">
+                {getSessionStateLabel(session.status)}
               </span>
-              <span className="rounded-full border border-white bg-white/80 px-3 py-1.5 text-slate-600">
+              <span className="rounded-full border border-white/8 bg-white/6 px-3 py-1.5 text-white/60">
                 {sessionProgressLabel(session.status)}
               </span>
-              <span className="rounded-full border border-white bg-white/80 px-3 py-1.5 text-slate-600">
+              <span className="rounded-full border border-white/8 bg-white/6 px-3 py-1.5 text-white/60">
                 {session.defaultVariant === 'plan' ? '默认 Plan' : '默认 Build'}
               </span>
               {session.status === 'waiting_approval' ? (
-                <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1.5 text-amber-800">
+                <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1.5 text-amber-200">
                   1 个待审批
                 </span>
               ) : null}
@@ -212,7 +207,7 @@ export function SessionList({
         ))}
 
         {sessions.length === 0 ? (
-          <article className="rounded-[24px] border border-dashed border-sand bg-mist/60 p-4 text-sm leading-6 text-slate-600">
+          <article className="rounded-[14px] border border-dashed border-white/10 bg-[#1f1f1f] p-4 text-sm leading-6 text-white/45">
             当前 workspace 还没有 session。先创建一个 goal-driven
             复杂任务，再进入右侧工作台。
           </article>

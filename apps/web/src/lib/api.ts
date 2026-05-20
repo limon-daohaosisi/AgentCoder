@@ -5,10 +5,10 @@ import type {
   CreateSessionInput,
   CreateWorkspaceInput,
   MessageDto,
-  SessionPlanFileDto,
-  SessionPlanBoardDto,
   ResumeSessionDto,
   SessionDto,
+  SessionPlanBoardDto,
+  SessionPlanFileDto,
   SubmitSessionMessageInput,
   SubmitSessionMessageResponse,
   WorkspaceDto
@@ -21,12 +21,6 @@ type ApiEnvelope<T> = {
 type ApiErrorPayload = {
   error?: string;
   issues?: unknown;
-};
-
-export type WorkspaceTreeNodeDto = {
-  children?: WorkspaceTreeNodeDto[];
-  name: string;
-  type: 'directory' | 'file';
 };
 
 export class ApiError extends Error {
@@ -85,10 +79,6 @@ export function createWorkspace(input: CreateWorkspaceInput) {
     },
     method: 'POST'
   });
-}
-
-export function getWorkspaceTree(workspaceId: string) {
-  return fetchData<WorkspaceTreeNodeDto[]>(`/workspaces/${workspaceId}/tree`);
 }
 
 export function listSessions(workspaceId: string) {
