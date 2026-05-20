@@ -57,3 +57,23 @@ test('resolveTools hides task_create in build mode but keeps execution tools', (
   assert.ok(tools.includes('bash'));
   assert.ok(tools.includes('apply_patch'));
 });
+
+test('resolveTools exposes execution-only task_update schema in build mode', () => {
+  const taskUpdate = resolveTools(createInput('build')).find(
+    (tool) => tool.name === 'task_update'
+  );
+
+  assert.ok(taskUpdate);
+
+  const parsed = taskUpdate!.inputSchema.safeParse({
+    taskId: 'task-1',
+    status: 'running'
+  });
+  assert.equal(parsed.success, true);
+
+  const structureMutation = taskUpdate!.inputSchema.safeParse({
+    description: 'should be rejected by build schema',
+    taskId: 'task-1'
+  });
+  assert.equal(structureMutation.success, false);
+});

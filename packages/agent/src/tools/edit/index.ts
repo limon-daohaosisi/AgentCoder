@@ -65,6 +65,7 @@ function applyEdit(input: {
 export const editToolDefinition: ToolDefinition<
   typeof editInputSchema,
   {
+    diff: string;
     diagnostics: string;
     filePath: string;
     matches: number;
@@ -136,6 +137,11 @@ export const editToolDefinition: ToolDefinition<
       oldString: input.oldString,
       replaceAll: input.replaceAll ?? false
     });
+    const diff = createFileDiff({
+      filePath: relativePath,
+      nextContent: edit.nextContent,
+      previousContent: snapshot.content
+    }).diff;
 
     await writeFile(absolutePath, edit.nextContent, 'utf8');
 
@@ -159,6 +165,7 @@ export const editToolDefinition: ToolDefinition<
     ]);
 
     return {
+      diff,
       diagnostics: formatDiagnosticsText({ context, diagnostics }),
       filePath: relativePath,
       matches: edit.matches,
@@ -171,6 +178,7 @@ export const editToolDefinition: ToolDefinition<
   present({ output }) {
     return {
       metadata: {
+        diff: output.diff,
         diagnostics: output.diagnostics,
         filePath: output.filePath,
         matches: output.matches,

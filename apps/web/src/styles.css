@@ -5,25 +5,45 @@
 @tailwind utilities;
 
 :root {
-  color: #111827;
-  background:
-    radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(20, 83, 45, 0.12), transparent 32%),
-    linear-gradient(180deg, #f7f2ea 0%, #f0e8db 100%);
-  font-family: "Space Grotesk", "IBM Plex Sans", ui-sans-serif, system-ui;
+  color: #f3f3f3;
+  background: #1f1f1f;
+  font-family: "IBM Plex Sans", "Space Grotesk", ui-sans-serif, system-ui;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: transparent;
+  background: #1f1f1f;
 }
 
 #root {
   min-height: 100vh;
 }
 
+.console-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.14) #242424;
+  scrollbar-width: thin;
+}
+
+.console-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.console-scroll::-webkit-scrollbar-track {
+  background: #242424;
+}
+
+.console-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.console-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 ::selection {
-  background: rgba(180, 83, 9, 0.18);
+  background: rgba(217, 217, 217, 0.22);
 }

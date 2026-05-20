@@ -1,5 +1,6 @@
 import type { SessionVariant, ToolName } from '@opencode/shared';
 import { toolRegistry } from '../tools/index.js';
+import { taskUpdateExecutionOnlyInputSchema } from '../tools/task_update/index.js';
 import type { BuiltContext, ResolvedTool } from './schema.js';
 
 const planAllowedTools = new Set<ToolName>([
@@ -54,7 +55,10 @@ export function resolveTools(input: ToolResolutionInput): ResolvedTool[] {
         approval: definition.approval,
         description: definition.description,
         enabled,
-        inputSchema: definition.inputSchema,
+        inputSchema:
+          definition.name === 'task_update' && variant === 'build'
+            ? taskUpdateExecutionOnlyInputSchema
+            : definition.inputSchema,
         name: definition.name,
         source: 'builtin'
       };

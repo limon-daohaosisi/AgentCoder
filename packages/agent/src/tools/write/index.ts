@@ -39,6 +39,7 @@ export const writeToolDefinition: ToolDefinition<
   typeof writeInputSchema,
   {
     bytesWritten: number;
+    diff: string;
     diagnostics: string;
     exists: boolean;
     filePath: string;
@@ -136,9 +137,15 @@ export const writeToolDefinition: ToolDefinition<
       context,
       diagnostics
     });
+    const diff = createFileDiff({
+      filePath: relativePath,
+      nextContent: input.content,
+      previousContent: previousContent ?? ''
+    }).diff;
 
     return {
       bytesWritten: Buffer.byteLength(input.content, 'utf8'),
+      diff,
       diagnostics: diagnosticsText,
       exists,
       filePath: relativePath,
@@ -152,6 +159,7 @@ export const writeToolDefinition: ToolDefinition<
     return {
       metadata: {
         bytesWritten: output.bytesWritten,
+        diff: output.diff,
         diagnostics: output.diagnostics,
         exists: output.exists,
         filePath: output.filePath,
