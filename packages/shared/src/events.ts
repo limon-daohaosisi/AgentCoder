@@ -3,6 +3,7 @@ import type {
   ApprovalDto,
   MessageDto,
   MessagePart,
+  SessionRevertDto,
   ToolCallDto
 } from './dto.js';
 
@@ -112,6 +113,15 @@ export type SessionEvent =
       sessionId: string;
       checkpoint: unknown;
       runId?: string;
+    }
+  | {
+      type: 'session.reverted';
+      revert: SessionRevertDto;
+      sessionId: string;
+    }
+  | {
+      type: 'session.revert_restored';
+      sessionId: string;
     }
   | {
       type: 'session.updated';

@@ -1,10 +1,13 @@
 import type {
   AgentRunDto,
+  WorkspaceDirectoryBrowseDto,
   CancelRunInput,
   CancelRunResponse,
   CreateSessionInput,
   CreateWorkspaceInput,
   MessageDto,
+  RestoreRevertResponse,
+  RevertSessionResponse,
   ResumeSessionDto,
   SessionDto,
   SessionPlanBoardDto,
@@ -71,6 +74,12 @@ export function listWorkspaces() {
   return fetchData<WorkspaceDto[]>('/workspaces');
 }
 
+export function browseWorkspaceDirectory(path?: string) {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+
+  return fetchData<WorkspaceDirectoryBrowseDto>(`/workspaces/browse${query}`);
+}
+
 export function createWorkspace(input: CreateWorkspaceInput) {
   return fetchData<WorkspaceDto>('/workspaces', {
     body: JSON.stringify(input),
@@ -111,6 +120,29 @@ export function getSessionPlanFile(sessionId: string) {
 
 export function listMessages(sessionId: string) {
   return fetchData<MessageDto[]>(`/sessions/${sessionId}/messages`);
+}
+
+export function revertSession(sessionId: string, input: { messageId: string }) {
+  return fetchData<RevertSessionResponse>(`/sessions/${sessionId}/revert`, {
+    body: JSON.stringify(input),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  });
+}
+
+export function restoreRevert(sessionId: string) {
+  return fetchData<RestoreRevertResponse>(
+    `/sessions/${sessionId}/revert/restore`,
+    {
+      body: JSON.stringify({}),
+      headers: {
+        'content-type': 'application/json'
+      },
+      method: 'POST'
+    }
+  );
 }
 
 export function resumeSession(sessionId: string) {

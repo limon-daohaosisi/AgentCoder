@@ -24,6 +24,7 @@ import type {
   MessagePart,
   MessageRuntimeMetadata,
   MessageStatus,
+  SessionRevertDto,
   SessionDto,
   SessionEvent,
   SessionEventEnvelope,
@@ -141,6 +142,9 @@ function mapSessionRow(row: SessionRow): SessionDto {
     id: row.id,
     lastCheckpointJson: mapNullableString(row.lastCheckpointJson),
     lastErrorText: mapNullableString(row.lastErrorText),
+    revert: row.revertJson
+      ? parseJsonValue<SessionRevertDto>(row.revertJson, {} as SessionRevertDto)
+      : undefined,
     status: row.status as SessionStatus,
     title: row.title,
     updatedAt: row.updatedAt,

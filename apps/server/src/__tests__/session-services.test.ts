@@ -207,6 +207,40 @@ test('messageService rejects writes for missing sessions', () => {
   );
 });
 
+test('sessionService persists and clears revert state', () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Exercise revert state persistence',
+    workspaceId: workspace.id
+  });
+
+  const revertedSession = sessionService.setSessionRevert({
+    revert: {
+      beforeSnapshotId: 'snapshot-before-1',
+      createdAt: '2026-05-20T10:00:00.000Z',
+      diffText: 'diff --git a/file.txt b/file.txt',
+      redoSnapshotId: 'snapshot-redo-1',
+      targetMessageId: 'message-1'
+    },
+    sessionId: session.id
+  });
+
+  assert.deepEqual(revertedSession?.revert, {
+    beforeSnapshotId: 'snapshot-before-1',
+    createdAt: '2026-05-20T10:00:00.000Z',
+    diffText: 'diff --git a/file.txt b/file.txt',
+    redoSnapshotId: 'snapshot-redo-1',
+    targetMessageId: 'message-1'
+  });
+
+  const clearedSession = sessionService.clearSessionRevert(session.id);
+
+  assert.equal(clearedSession?.revert, undefined);
+  assert.equal(clearedSession?.goalText, 'Exercise revert state persistence');
+});
+
 test('manual compact does not auto-continue the original task and restores recent read context', async () => {
   const workspace = workspaceService.createWorkspace({
     rootPath: environment.workspaceRoot

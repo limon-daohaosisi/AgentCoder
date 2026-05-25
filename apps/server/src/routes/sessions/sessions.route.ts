@@ -8,4 +8,6 @@ export const sessionRoutes = new Hono()
   .get('/:sessionId/plan-board', ...handlers.getPlanBoard)
   .get('/:sessionId/plan-file', ...handlers.getPlanFile)
   .get('/:sessionId/messages', ...handlers.listMessages)
+  .post('/:sessionId/revert', ...handlers.revert)
+  .post('/:sessionId/revert/restore', ...handlers.restoreRevert)
   .post('/:sessionId/resume', ...handlers.resume);

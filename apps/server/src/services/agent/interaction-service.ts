@@ -31,6 +31,7 @@ import { sessionEventService } from '../session-events/event-service.js';
 import { agentRunService } from './run-service.js';
 import { toolStateService } from './tool-state-service.js';
 import { planService } from '../session/plan-service.js';
+import { workspaceSnapshotService } from './workspace-snapshot-service.js';
 
 type ResolveApprovalContext =
   | {
@@ -98,9 +99,21 @@ export class SessionInteractionService {
       );
     }
 
+    if (session.revert) {
+      throw new ServiceError(
+        'Restore the reverted session before submitting a new prompt.',
+        409
+      );
+    }
+
     const response = await this.runner.ensureRunning(
       input.sessionId,
       async () => {
+        const workspaceRoot = this.resolveWorkspaceRoot(input.sessionId);
+        const beforeSnapshotId = await workspaceSnapshotService.track({
+          workspaceRoot
+        });
+
         return Database.transaction(() => {
           const run = agentRunService.createRun({ sessionId: input.sessionId });
           const variant = resolveMessageVariant({
@@ -121,6 +134,10 @@ export class SessionInteractionService {
           const message = messageService.createMessage({
             ...normalized.message,
             content: normalized.parts,
+            runtime: {
+              ...normalized.message.runtime,
+              beforeSnapshotId
+            },
             runId: run.id
           });
 

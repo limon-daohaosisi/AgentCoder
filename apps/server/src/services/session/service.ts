@@ -1,5 +1,6 @@
 import type {
   CreateSessionInput,
+  SessionRevertDto,
   SessionCheckpoint,
   SessionDto
 } from '@opencode/shared';
@@ -108,6 +109,21 @@ export const sessionService = {
       lastCheckpointJson: serializeCheckpoint(input.lastCheckpoint),
       lastErrorText: input.lastErrorText,
       status: input.status,
+      updatedAt: new Date().toISOString()
+    });
+  },
+
+  setSessionRevert(input: { revert: SessionRevertDto; sessionId: string }) {
+    return sessionRepository.setRevert({
+      id: input.sessionId,
+      revert: input.revert,
+      updatedAt: new Date().toISOString()
+    });
+  },
+
+  clearSessionRevert(sessionId: string) {
+    return sessionRepository.clearRevert({
+      id: sessionId,
       updatedAt: new Date().toISOString()
     });
   }

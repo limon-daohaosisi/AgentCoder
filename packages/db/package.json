@@ -2,7 +2,7 @@
   "name": "@opencode/db",
   "private": true,
   "scripts": {
-    "apply": "atlas migrate apply --env local",
+    "apply": "node ./scripts/apply.mjs",
     "diff": "atlas migrate diff",
     "status": "atlas migrate status --env local"
   }

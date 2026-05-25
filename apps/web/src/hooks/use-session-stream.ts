@@ -29,6 +29,8 @@ const SESSION_EVENT_NAMES = [
   'tool.completed',
   'tool.failed',
   'session.recovered',
+  'session.reverted',
+  'session.revert_restored',
   'session.resumable',
   'session.updated'
 ] as const;
@@ -45,7 +47,9 @@ function isPlanBoardRelevantEvent(event: SessionEventEnvelope['event']) {
     event.type === 'tool.completed' ||
     event.type === 'tool.failed' ||
     event.type === 'approval.created' ||
-    event.type === 'approval.resolved'
+    event.type === 'approval.resolved' ||
+    event.type === 'session.reverted' ||
+    event.type === 'session.revert_restored'
   );
 }
 
@@ -61,7 +65,9 @@ function isMessageCacheRelevantEvent(event: SessionEventEnvelope['event']) {
     event.type === 'approval.resolved' ||
     event.type === 'tool.running' ||
     event.type === 'tool.completed' ||
-    event.type === 'tool.failed'
+    event.type === 'tool.failed' ||
+    event.type === 'session.reverted' ||
+    event.type === 'session.revert_restored'
   );
 }
 
@@ -101,6 +107,17 @@ export function useSessionStream(sessionId?: string, workspaceId?: string) {
         setStreamState((currentState) => {
           if (currentState.sessionId !== sessionId) {
             return currentState;
+          }
+
+          if (
+            envelope.event.type === 'session.reverted' ||
+            envelope.event.type === 'session.revert_restored'
+          ) {
+            return {
+              events: [envelope],
+              sessionId,
+              status: 'connected'
+            };
           }
 
           if (

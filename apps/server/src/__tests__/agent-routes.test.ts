@@ -3,6 +3,7 @@ import { afterEach, beforeEach, mock, test } from 'node:test';
 import type { MessagePart } from '@opencode/shared';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { parseJson } from './server-test-helpers.js';
+import { sessionRevertService } from '../services/session/revert-service.js';
 
 const {
   app,
@@ -181,6 +182,109 @@ test('POST /api/sessions/:sessionId/compact delegates to SessionInteractionServi
   assert.equal(payload.data?.compacted, true);
   assert.equal(payload.data?.requestMessageId, 'compact-request-1');
   assert.equal(payload.data?.summaryMessageId, 'compact-summary-1');
+});
+
+test('POST /api/sessions/:sessionId/revert delegates to SessionRevertService', async () => {
+  const revert = mock.method(
+    sessionRevertService,
+    'revertToMessage',
+    async (input: { messageId: string; sessionId: string }) => {
+      assert.deepEqual(input, {
+        messageId: 'message-123',
+        sessionId: 'session-revert'
+      });
+
+      return {
+        revert: {
+          beforeSnapshotId: 'snapshot-before-1',
+          createdAt: '2026-05-20T10:00:00.000Z',
+          redoSnapshotId: 'snapshot-redo-1',
+          targetMessageId: 'message-123'
+        },
+        session: {
+          createdAt: '2026-05-20T09:59:00.000Z',
+          defaultVariant: 'plan' as const,
+          goalText: 'Exercise revert route',
+          id: 'session-revert',
+          revert: {
+            beforeSnapshotId: 'snapshot-before-1',
+            createdAt: '2026-05-20T10:00:00.000Z',
+            redoSnapshotId: 'snapshot-redo-1',
+            targetMessageId: 'message-123'
+          },
+          status: 'idle' as const,
+          title: 'Exercise revert route',
+          updatedAt: '2026-05-20T10:00:01.000Z',
+          workspaceId: 'workspace-1'
+        }
+      };
+    }
+  );
+
+  const response = await app.request('/api/sessions/session-revert/revert', {
+    body: JSON.stringify({ messageId: 'message-123' }),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(revert.mock.calls.length, 1);
+  const payload = await parseJson<{
+    revert: { targetMessageId: string };
+    session: { id: string };
+  }>(response);
+
+  assert.equal(payload.data?.revert.targetMessageId, 'message-123');
+  assert.equal(payload.data?.session.id, 'session-revert');
+});
+
+test('POST /api/sessions/:sessionId/revert/restore delegates to SessionRevertService', async () => {
+  const restoreRevert = mock.method(
+    sessionRevertService,
+    'restoreRevert',
+    async (input: { sessionId: string }) => {
+      assert.deepEqual(input, {
+        sessionId: 'session-revert'
+      });
+
+      return {
+        restored: true,
+        session: {
+          createdAt: '2026-05-20T09:59:00.000Z',
+          defaultVariant: 'plan' as const,
+          goalText: 'Exercise revert route',
+          id: 'session-revert',
+          status: 'idle' as const,
+          title: 'Exercise revert route',
+          updatedAt: '2026-05-20T10:00:02.000Z',
+          workspaceId: 'workspace-1'
+        }
+      };
+    }
+  );
+
+  const response = await app.request(
+    '/api/sessions/session-revert/revert/restore',
+    {
+      body: JSON.stringify({}),
+      headers: {
+        'content-type': 'application/json'
+      },
+      method: 'POST'
+    }
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(restoreRevert.mock.calls.length, 1);
+  const payload = await parseJson<{
+    restored: boolean;
+    session: { id: string };
+  }>(response);
+
+  assert.equal(payload.data?.restored, true);
+  assert.equal(payload.data?.session.id, 'session-revert');
 });
 
 test('manual compact route does not invoke prompt submission flow', async () => {

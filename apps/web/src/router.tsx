@@ -1,4 +1,3 @@
-import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { SessionVariant } from '@opencode/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,6 +15,7 @@ import { Composer } from './features/chat/composer';
 import { MessageList } from './features/chat/message-list';
 import { SessionList } from './features/sessions/session-list';
 import { TaskBoard } from './features/tasks/task-board';
+import { DirectoryPickerModal } from './features/workspaces/directory-picker-modal';
 import { useSessionStream } from './hooks/use-session-stream';
 import {
   approveApproval,
@@ -30,6 +30,8 @@ import {
   listWorkspaces,
   manualCompact,
   rejectApproval,
+  restoreRevert,
+  revertSession,
   resumeSession,
   submitSessionMessage
 } from './lib/api';
@@ -54,7 +56,8 @@ function RootLayout() {
 function HomePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [rootPath, setRootPath] = useState('');
+  const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
+  const [selectedRootPath, setSelectedRootPath] = useState('');
   const workspaceListQuery = useQuery({
     queryFn: listWorkspaces,
     queryKey: ['workspaces']
@@ -63,7 +66,7 @@ function HomePage() {
     mutationFn: createWorkspace,
     onSuccess: async (workspace) => {
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-      setRootPath('');
+      setSelectedRootPath('');
       await navigate({
         params: {
           workspaceId: workspace.id
@@ -73,88 +76,96 @@ function HomePage() {
     }
   });
 
-  function handleCreateWorkspace(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const normalizedRootPath = rootPath.trim();
-
-    if (!normalizedRootPath) {
-      return;
-    }
-
-    createWorkspaceMutation.mutate({
-      rootPath: normalizedRootPath
-    });
-  }
-
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-6xl items-center justify-center px-6 py-12">
-      <section className="w-full rounded-[32px] border border-white/60 bg-white/85 p-10 shadow-panel backdrop-blur">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-ember">
+      <section className="w-full overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,#12161d,#090b0e)] p-10 shadow-[0_32px_120px_rgba(0,0,0,0.5)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-white/45">
           OpenCode Web Lite
         </p>
-        <h1 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight text-ink">
-          Workspace 与 Session
-          顶层数据与任务板已经接到真实后端，时间线和详情仍有原型占位。
+        <h1 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight text-white">
+          选择一个目录，而不是手动输入路径字符串。
         </h1>
-        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-          现在可以直接创建 workspace、查看已有 session、进入真实的文件树与
-          session current-state。任务板已经开始消费真实 plan/task
-          数据，时间线和审批详情会在后续阶段继续补齐更多真实内容。
+        <p className="mt-4 max-w-3xl text-base leading-7 text-white/62">
+          首页默认从当前仓库开始浏览，但你可以继续切到整台机器上的任意目录。
+          选中后再创建或复用
+          workspace，整体交互更接近控制台工作台而不是表单录入。
         </p>
 
-        <form
-          className="mt-8 rounded-[28px] border border-sand bg-mist/80 p-5"
-          onSubmit={handleCreateWorkspace}
-        >
-          <div className="flex flex-col gap-3 md:flex-row">
-            <input
-              className="flex-1 rounded-full border border-white bg-white px-5 py-3 text-sm text-ink outline-none"
-              onChange={(event) => setRootPath(event.target.value)}
-              placeholder="输入一个本地 workspace 根目录，例如 /home/me/project"
-              value={rootPath}
-            />
+        <div className="mt-8 rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,#10141a,#0b0d10)] p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start">
             <button
-              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+              onClick={() => setIsDirectoryPickerOpen(true)}
+              type="button"
+            >
+              选择目录
+            </button>
+
+            <div className="flex-1 rounded-[22px] border border-white/10 bg-[#0b1015] px-5 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+                Selected Path
+              </p>
+              <p className="mt-3 break-all font-mono text-sm leading-7 text-white/82">
+                {selectedRootPath || '还没有选择目录'}
+              </p>
+              <p className="mt-3 text-sm leading-6 text-white/45">
+                确认后会调用现有 workspace 创建接口。如果该路径已存在于列表中，
+                后端会直接复用并更新时间戳。
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm leading-6 text-white/45">
+              起始目录固定为当前仓库，可继续浏览到任意系统目录。
+            </p>
+            <button
+              className="rounded-full border border-white/10 bg-white/6 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={
                 createWorkspaceMutation.isPending ||
-                rootPath.trim().length === 0
+                selectedRootPath.trim().length === 0
               }
-              type="submit"
+              onClick={() =>
+                createWorkspaceMutation.mutate({
+                  rootPath: selectedRootPath.trim()
+                })
+              }
+              type="button"
             >
               {createWorkspaceMutation.isPending
                 ? '创建中...'
                 : '创建或打开 Workspace'}
             </button>
           </div>
+
           {createWorkspaceMutation.isError ? (
-            <p className="mt-3 text-sm text-red-700">
+            <p className="mt-4 text-sm text-red-300">
               {getErrorMessage(createWorkspaceMutation.error)}
             </p>
           ) : null}
-        </form>
+        </div>
 
         <div className="mt-8">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-ember">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/35">
                 Recent Workspaces
               </p>
-              <h2 className="text-lg font-semibold text-ink">最近工作区</h2>
+              <h2 className="text-lg font-semibold text-white">最近工作区</h2>
             </div>
-            <span className="rounded-full border border-sand bg-mist px-4 py-2 text-sm text-slate-600">
+            <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/55">
               {workspaceListQuery.data?.length ?? 0} 个 workspace
             </span>
           </div>
 
           {workspaceListQuery.isLoading ? (
-            <div className="rounded-[24px] border border-sand bg-mist/70 p-5 text-sm text-slate-600">
+            <div className="rounded-[24px] border border-white/10 bg-white/5 p-5 text-sm text-white/55">
               正在读取 workspace 列表...
             </div>
           ) : null}
 
           {workspaceListQuery.isError ? (
-            <div className="rounded-[24px] border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+            <div className="rounded-[24px] border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-200">
               {getErrorMessage(workspaceListQuery.error)}
             </div>
           ) : null}
@@ -164,20 +175,20 @@ function HomePage() {
               {workspaceListQuery.data.map((workspace) => (
                 <Link
                   key={workspace.id}
-                  className="block rounded-[28px] border border-sand bg-mist/80 p-5 transition hover:border-amber-300 hover:bg-amber-50"
+                  className="block rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,#11161c,#0e1217)] p-5 transition hover:border-white/20 hover:bg-[linear-gradient(180deg,#151b22,#11161c)]"
                   params={{ workspaceId: workspace.id }}
                   to="/workspace/$workspaceId"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-lg font-semibold text-ink">
+                      <p className="text-lg font-semibold text-white">
                         {workspace.name}
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                      <p className="mt-2 text-sm leading-6 text-white/50">
                         {workspace.rootPath}
                       </p>
                     </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-500">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/45">
                       {formatSessionTimestamp(workspace.lastOpenedAt)}
                     </span>
                   </div>
@@ -187,13 +198,23 @@ function HomePage() {
           ) : null}
 
           {workspaceListQuery.data?.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-sand bg-mist/60 p-5 text-sm leading-6 text-slate-600">
-              还没有 workspace。先输入一个项目目录，前端就会使用新的 Day 2 CRUD
-              接口创建或复用它。
+            <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 p-5 text-sm leading-6 text-white/50">
+              还没有
+              workspace。先打开目录选择面板，确认一个本地目录后再创建或复用它。
             </div>
           ) : null}
         </div>
       </section>
+
+      <DirectoryPickerModal
+        initialPath={selectedRootPath || undefined}
+        isOpen={isDirectoryPickerOpen}
+        onClose={() => setIsDirectoryPickerOpen(false)}
+        onConfirm={(path) => {
+          setSelectedRootPath(path);
+          setIsDirectoryPickerOpen(false);
+        }}
+      />
     </div>
   );
 }
@@ -395,6 +416,60 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
       });
     }
   });
+  const revertSessionMutation = useMutation({
+    mutationFn: (messageId: string) => {
+      if (!props.sessionId) {
+        throw new Error('当前还没有选中的 session');
+      }
+
+      return revertSession(props.sessionId, { messageId });
+    },
+    onSuccess: async () => {
+      if (!props.sessionId) {
+        return;
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['resume-session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['sessions', props.workspaceId]
+      });
+    }
+  });
+  const restoreRevertMutation = useMutation({
+    mutationFn: () => {
+      if (!props.sessionId) {
+        throw new Error('当前还没有选中的 session');
+      }
+
+      return restoreRevert(props.sessionId);
+    },
+    onSuccess: async () => {
+      if (!props.sessionId) {
+        return;
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['resume-session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['sessions', props.workspaceId]
+      });
+    }
+  });
 
   const workspace = workspaceListQuery.data?.find(
     (item) => item.id === props.workspaceId
@@ -475,6 +550,9 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     !props.sessionId ||
     submitMessageMutation.isPending ||
     manualCompactMutation.isPending ||
+    revertSessionMutation.isPending ||
+    restoreRevertMutation.isPending ||
+    Boolean(currentSessionData?.revert) ||
     !canSubmitMessage;
 
   useEffect(() => {
@@ -623,6 +701,26 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                 onScroll={handleMessageScroll}
                 ref={messageScrollRef}
               >
+                {currentSessionData.revert ? (
+                  <div className="mb-4 rounded-[16px] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
+                    <p className="font-semibold">会话已回退</p>
+                    <p className="mt-2 text-amber-100/80">
+                      当前只显示回退点之前的消息。恢复后可继续查看和编辑最新状态。
+                    </p>
+                    <div className="mt-3">
+                      <button
+                        className="rounded-full bg-[#d9d9d9] px-4 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={restoreRevertMutation.isPending}
+                        onClick={() => restoreRevertMutation.mutate()}
+                        type="button"
+                      >
+                        {restoreRevertMutation.isPending
+                          ? '恢复中...'
+                          : '恢复回退内容'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <MessageList
                   approvals={pendingApprovals}
                   messages={liveMessages}
@@ -631,6 +729,9 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                   }
                   onReject={(approvalId) =>
                     void handleApprovalAction(approvalId, 'reject')
+                  }
+                  onRevert={(messageId) =>
+                    revertSessionMutation.mutate(messageId)
                   }
                   planFile={planFileQuery.data}
                 />
@@ -650,6 +751,16 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                 {manualCompactMutation.isError ? (
                   <p className="mb-3 text-sm text-red-200">
                     {getErrorMessage(manualCompactMutation.error)}
+                  </p>
+                ) : null}
+                {revertSessionMutation.isError ? (
+                  <p className="mb-3 text-sm text-red-200">
+                    {getErrorMessage(revertSessionMutation.error)}
+                  </p>
+                ) : null}
+                {restoreRevertMutation.isError ? (
+                  <p className="mb-3 text-sm text-red-200">
+                    {getErrorMessage(restoreRevertMutation.error)}
                   </p>
                 ) : null}
                 {canCancelRun ? (

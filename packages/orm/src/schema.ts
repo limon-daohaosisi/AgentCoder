@@ -654,6 +654,7 @@ export const sessions = sqliteTable(
     currentTaskId: text('current_task_id'),
     lastErrorText: text('last_error_text'),
     lastCheckpointJson: text('last_checkpoint_json'),
+    revertJson: text('revert_json'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     archivedAt: text('archived_at')
