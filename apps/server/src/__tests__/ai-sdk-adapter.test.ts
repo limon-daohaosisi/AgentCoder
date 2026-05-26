@@ -1,6 +1,7 @@
 import {
   ContextBuilder,
   bashInputSchema,
+  buildEnvironmentSystemBlock,
   DEFAULT_TOOL_OUTPUT_POLICY,
   filterCompacted,
   readInputSchema,
@@ -46,6 +47,19 @@ function createEmptyDebug(): ContextBuildDebug {
     skippedParts: []
   };
 }
+
+test('environment block omits session and date from stable prompt prefix', () => {
+  const session = createSession();
+  const block = buildEnvironmentSystemBlock({
+    agentName: 'default',
+    model: { modelId: 'gpt-4.1-mini', providerId: 'openai' },
+    session,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  assert.equal(block.text.includes('Session id:'), false);
+  assert.equal(block.text.includes("Today's date:"), false);
+});
 
 test('ContextBuilder and AI SDK adapter rebuild tool call/result context from parts', () => {
   const session = createSession();

@@ -424,16 +424,24 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
 
       return revertSession(props.sessionId, { messageId });
     },
-    onSuccess: async () => {
+    onSuccess: async (response) => {
       if (!props.sessionId) {
         return;
       }
+
+      queryClient.setQueryData(['session', props.sessionId], response.session);
 
       await queryClient.invalidateQueries({
         queryKey: ['messages', props.sessionId]
       });
       await queryClient.invalidateQueries({
         queryKey: ['session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-board', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-file', props.sessionId]
       });
       await queryClient.invalidateQueries({
         queryKey: ['resume-session', props.sessionId]
@@ -451,16 +459,24 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
 
       return restoreRevert(props.sessionId);
     },
-    onSuccess: async () => {
+    onSuccess: async (response) => {
       if (!props.sessionId) {
         return;
       }
+
+      queryClient.setQueryData(['session', props.sessionId], response.session);
 
       await queryClient.invalidateQueries({
         queryKey: ['messages', props.sessionId]
       });
       await queryClient.invalidateQueries({
         queryKey: ['session', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-board', props.sessionId]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['session-plan-file', props.sessionId]
       });
       await queryClient.invalidateQueries({
         queryKey: ['resume-session', props.sessionId]
@@ -552,7 +568,6 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
     manualCompactMutation.isPending ||
     revertSessionMutation.isPending ||
     restoreRevertMutation.isPending ||
-    Boolean(currentSessionData?.revert) ||
     !canSubmitMessage;
 
   useEffect(() => {
@@ -705,20 +720,24 @@ function WorkspaceScreen(props: { sessionId?: string; workspaceId: string }) {
                   <div className="mb-4 rounded-[16px] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
                     <p className="font-semibold">会话已回退</p>
                     <p className="mt-2 text-amber-100/80">
-                      当前只显示回退点之前的消息。恢复后可继续查看和编辑最新状态。
+                      {currentSessionData.revert.redoSnapshotId
+                        ? '当前只显示回退点之前的消息。你可以直接继续对话，或恢复回退前的工作区状态。'
+                        : '当前只显示回退点之前的消息。你已经从回退点继续对话，无法再恢复回退前的工作区状态。'}
                     </p>
-                    <div className="mt-3">
-                      <button
-                        className="rounded-full bg-[#d9d9d9] px-4 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={restoreRevertMutation.isPending}
-                        onClick={() => restoreRevertMutation.mutate()}
-                        type="button"
-                      >
-                        {restoreRevertMutation.isPending
-                          ? '恢复中...'
-                          : '恢复回退内容'}
-                      </button>
-                    </div>
+                    {currentSessionData.revert.redoSnapshotId ? (
+                      <div className="mt-3">
+                        <button
+                          className="rounded-full bg-[#d9d9d9] px-4 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={restoreRevertMutation.isPending}
+                          onClick={() => restoreRevertMutation.mutate()}
+                          type="button"
+                        >
+                          {restoreRevertMutation.isPending
+                            ? '恢复中...'
+                            : '恢复回退内容'}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <MessageList

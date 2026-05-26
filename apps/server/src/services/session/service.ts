@@ -121,6 +121,24 @@ export const sessionService = {
     });
   },
 
+  invalidateSessionRevertRestore(sessionId: string) {
+    const session = sessionRepository.getById(sessionId);
+
+    if (!session?.revert) {
+      return session ?? null;
+    }
+
+    return sessionRepository.setRevert({
+      id: sessionId,
+      revert: {
+        ...session.revert,
+        continuedAt: new Date().toISOString(),
+        redoSnapshotId: undefined
+      },
+      updatedAt: new Date().toISOString()
+    });
+  },
+
   clearSessionRevert(sessionId: string) {
     return sessionRepository.clearRevert({
       id: sessionId,

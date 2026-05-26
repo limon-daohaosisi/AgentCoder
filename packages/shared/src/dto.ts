@@ -329,6 +329,7 @@ export type SessionCheckpoint = {
 
 export type SessionRevertDto = {
   beforeSnapshotId: string;
+  continuedAt?: string;
   createdAt: string;
   diffText?: string;
   redoSnapshotId?: string;

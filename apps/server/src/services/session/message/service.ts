@@ -163,7 +163,18 @@ export const messageService = {
       return messages;
     }
 
-    return messages.slice(0, targetIndex);
+    const visiblePrefix = messages.slice(0, targetIndex);
+    const continuedAt = session?.revert?.continuedAt;
+
+    if (!continuedAt) {
+      return visiblePrefix;
+    }
+
+    const visibleSuffix = messages.filter(
+      (message) => message.createdAt >= continuedAt
+    );
+
+    return [...visiblePrefix, ...visibleSuffix];
   },
 
   updateMessageContent(id: string, content: MessagePart[]) {

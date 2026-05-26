@@ -125,6 +125,10 @@ async function stageWorkspace(workspaceRoot: string, gitDir: string) {
   return writeTreeResult.stdout.trim();
 }
 
+function withNoQuotePath(args: string[]) {
+  return ['-c', 'core.quotepath=false', ...args];
+}
+
 export const workspaceSnapshotService = {
   async diff(input: { snapshotId: string; workspaceRoot: string }) {
     const store = await ensureSnapshotStore(input.workspaceRoot);
@@ -135,7 +139,7 @@ export const workspaceSnapshotService = {
     await stageWorkspace(input.workspaceRoot, store.gitDir);
 
     const diffResult = await runGit(
-      ['diff', '--no-ext-diff', input.snapshotId, '--', '.'],
+      withNoQuotePath(['diff', '--no-ext-diff', input.snapshotId, '--', '.']),
       input.workspaceRoot,
       env
     );
@@ -158,7 +162,7 @@ export const workspaceSnapshotService = {
     };
     await stageWorkspace(input.workspaceRoot, store.gitDir);
     const changedFilesResult = await runGit(
-      ['diff', '--name-only', input.snapshotId, '--', '.'],
+      withNoQuotePath(['diff', '--name-only', input.snapshotId, '--', '.']),
       input.workspaceRoot,
       env
     );
@@ -177,7 +181,7 @@ export const workspaceSnapshotService = {
 
     for (const relativePath of changedFiles) {
       const checkoutResult = await runGit(
-        ['checkout', input.snapshotId, '--', relativePath],
+        withNoQuotePath(['checkout', input.snapshotId, '--', relativePath]),
         input.workspaceRoot,
         env
       );
@@ -187,7 +191,7 @@ export const workspaceSnapshotService = {
       }
 
       const treeResult = await runGit(
-        ['ls-tree', input.snapshotId, '--', relativePath],
+        withNoQuotePath(['ls-tree', input.snapshotId, '--', relativePath]),
         input.workspaceRoot,
         env
       );

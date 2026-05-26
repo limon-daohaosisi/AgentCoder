@@ -99,13 +99,6 @@ export class SessionInteractionService {
       );
     }
 
-    if (session.revert) {
-      throw new ServiceError(
-        'Restore the reverted session before submitting a new prompt.',
-        409
-      );
-    }
-
     const response = await this.runner.ensureRunning(
       input.sessionId,
       async () => {
@@ -115,10 +108,14 @@ export class SessionInteractionService {
         });
 
         return Database.transaction(() => {
+          const revertedSession = session.revert
+            ? sessionService.invalidateSessionRevertRestore(input.sessionId)
+            : session;
           const run = agentRunService.createRun({ sessionId: input.sessionId });
           const variant = resolveMessageVariant({
             explicitVariant: input.variant,
-            sessionDefaultVariant: session.defaultVariant,
+            sessionDefaultVariant:
+              revertedSession?.defaultVariant ?? session.defaultVariant,
             sessionId: input.sessionId
           });
 
