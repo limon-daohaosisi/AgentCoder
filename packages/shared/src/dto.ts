@@ -54,6 +54,7 @@ export type MessageRole = 'user' | 'assistant';
 export type MessageStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
 export type MessageRuntimeMetadata = {
+  beforeSnapshotId?: string;
   format?:
     | { type: 'text' }
     | { schema: Record<string, unknown>; type: 'json_schema' };
@@ -249,6 +250,24 @@ export type WorkspaceDto = {
   updatedAt: string;
 };
 
+export type WorkspaceDirectorySegmentDto = {
+  name: string;
+  path: string;
+};
+
+export type WorkspaceDirectoryEntryDto = {
+  name: string;
+  path: string;
+};
+
+export type WorkspaceDirectoryBrowseDto = {
+  currentPath: string;
+  directories: WorkspaceDirectoryEntryDto[];
+  parentPath?: string;
+  rootLabel: string;
+  segments: WorkspaceDirectorySegmentDto[];
+};
+
 export type PlanDto = {
   createdAt: string;
   filePath?: string;
@@ -308,6 +327,15 @@ export type SessionCheckpoint = {
   updatedAt: string;
 };
 
+export type SessionRevertDto = {
+  beforeSnapshotId: string;
+  continuedAt?: string;
+  createdAt: string;
+  diffText?: string;
+  redoSnapshotId?: string;
+  targetMessageId: string;
+};
+
 export type SessionDto = {
   archivedAt?: string;
   createdAt: string;
@@ -318,6 +346,7 @@ export type SessionDto = {
   id: string;
   lastErrorText?: string;
   lastCheckpointJson?: string;
+  revert?: SessionRevertDto;
   status: SessionStatus;
   title: string;
   updatedAt: string;
@@ -376,6 +405,16 @@ export type SubmitSessionMessageResponse = {
   accepted: true;
   message: MessageDto;
   run: AgentRunDto;
+};
+
+export type RevertSessionResponse = {
+  revert: SessionRevertDto;
+  session: SessionDto;
+};
+
+export type RestoreRevertResponse = {
+  restored: true;
+  session: SessionDto;
 };
 
 export type CancelRunResponse = {

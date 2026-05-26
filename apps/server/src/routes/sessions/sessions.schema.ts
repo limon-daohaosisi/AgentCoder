@@ -18,5 +18,21 @@ export const SessionsSchemas = {
     param: z.object({
       sessionId: idSchema
     })
+  },
+
+  restoreRevert: {
+    json: z.object({}),
+    param: z.object({
+      sessionId: idSchema
+    })
+  },
+
+  revert: {
+    json: z.object({
+      messageId: idSchema
+    }),
+    param: z.object({
+      sessionId: idSchema
+    })
   }
 };

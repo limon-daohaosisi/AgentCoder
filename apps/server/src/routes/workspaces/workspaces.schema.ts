@@ -1,7 +1,14 @@
-import { createWorkspaceInputSchema } from '@opencode/shared';
+import {
+  browseWorkspaceDirectoryQuerySchema,
+  createWorkspaceInputSchema
+} from '@opencode/shared';
 import { z } from 'zod';
 
 export const WorkspacesSchemas = {
+  browse: {
+    query: browseWorkspaceDirectoryQuerySchema
+  },
+
   create: {
     json: createWorkspaceInputSchema
   },

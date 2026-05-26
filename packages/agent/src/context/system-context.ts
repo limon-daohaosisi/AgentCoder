@@ -36,11 +36,9 @@ export function buildEnvironmentSystemBlock(
       '<env>',
       `  Working directory: ${input.workspaceRoot}`,
       `  Workspace root folder: ${input.workspaceRoot}`,
-      `  Session id: ${input.session.id}`,
       `  Agent: ${input.agentName}`,
       '  Is directory a git repo: unknown',
       `  Platform: ${process.platform}`,
-      `  Today's date: ${new Date().toDateString()}`,
       '</env>'
     ].join('\n')
   };

@@ -35,6 +35,10 @@ function deriveCreatedAt(event: SessionEvent) {
       return event.updatedAt ?? event.timestamp ?? new Date().toISOString();
     case 'session.recovered':
       return event.recoveredAt;
+    case 'session.reverted':
+      return event.revert.createdAt;
+    case 'session.revert_restored':
+      return new Date().toISOString();
     case 'session.resumable': {
       const checkpoint = event.checkpoint;
 
@@ -176,6 +180,19 @@ function deriveMetadata(event: SessionEvent) {
         entityType: 'session',
         headline: 'Session recovered',
         level: 'warning' as const
+      };
+    case 'session.reverted':
+      return {
+        detailText: event.revert.targetMessageId,
+        entityId: event.sessionId,
+        entityType: 'session',
+        headline: 'Session reverted'
+      };
+    case 'session.revert_restored':
+      return {
+        entityId: event.sessionId,
+        entityType: 'session',
+        headline: 'Session revert restored'
       };
     case 'session.resumable':
       return {

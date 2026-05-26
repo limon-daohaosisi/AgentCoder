@@ -1,12 +1,14 @@
 import { sessions } from '@opencode/orm';
 import type { NewSession, SessionRow } from '@opencode/orm';
 import type {
+  SessionRevertDto,
   SessionDto,
   SessionStatus,
   SessionVariant
 } from '@opencode/shared';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { Database } from '../db/runtime.js';
+import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
 type UpdateResumeStateInput = {
   currentPlanId?: null | string;
@@ -15,6 +17,12 @@ type UpdateResumeStateInput = {
   lastCheckpointJson?: null | string;
   lastErrorText?: null | string;
   status?: SessionStatus;
+  updatedAt: string;
+};
+
+type UpdateRevertStateInput = {
+  id: string;
+  revertJson: null | string;
   updatedAt: string;
 };
 
@@ -33,6 +41,9 @@ function mapSessionRow(row: SessionRow): SessionDto {
     id: row.id,
     lastCheckpointJson: mapNullable(row.lastCheckpointJson),
     lastErrorText: mapNullable(row.lastErrorText),
+    revert: row.revertJson
+      ? parseJsonValue<SessionRevertDto>(row.revertJson, {} as SessionRevertDto)
+      : undefined,
     status: row.status as SessionStatus,
     title: row.title,
     updatedAt: row.updatedAt,
@@ -118,5 +129,42 @@ export const sessionRepository = {
     );
 
     return row ? mapSessionRow(row) : null;
+  },
+
+  updateRevertState(input: UpdateRevertStateInput): SessionDto | null {
+    const row = Database.use((db) =>
+      db
+        .update(sessions)
+        .set({
+          revertJson: input.revertJson,
+          updatedAt: input.updatedAt
+        })
+        .where(eq(sessions.id, input.id))
+        .returning()
+        .get()
+    );
+
+    return row ? mapSessionRow(row) : null;
+  },
+
+  setRevert(input: {
+    id: string;
+    revert: SessionRevertDto | null;
+    updatedAt: string;
+  }) {
+    return this.updateRevertState({
+      id: input.id,
+      revertJson:
+        input.revert === null ? null : stringifyJsonValue(input.revert),
+      updatedAt: input.updatedAt
+    });
+  },
+
+  clearRevert(input: { id: string; updatedAt: string }) {
+    return this.updateRevertState({
+      id: input.id,
+      revertJson: null,
+      updatedAt: input.updatedAt
+    });
   }
 };

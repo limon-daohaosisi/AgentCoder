@@ -360,6 +360,36 @@ function projectEvent(
   }
 }
 
+function coalesceDeltaEvents(events: SessionEventEnvelope[]) {
+  const coalesced: SessionEventEnvelope[] = [];
+
+  for (const envelope of events) {
+    const previous = coalesced.at(-1);
+
+    if (
+      previous?.event.type === 'message.part.delta' &&
+      envelope.event.type === 'message.part.delta' &&
+      previous.createdAt === envelope.createdAt &&
+      previous.event.messageId === envelope.event.messageId &&
+      previous.event.partId === envelope.event.partId &&
+      previous.event.field === envelope.event.field
+    ) {
+      coalesced[coalesced.length - 1] = {
+        ...envelope,
+        event: {
+          ...envelope.event,
+          delta: previous.event.delta + envelope.event.delta
+        }
+      };
+      continue;
+    }
+
+    coalesced.push(envelope);
+  }
+
+  return coalesced;
+}
+
 export function projectMessages(
   baseMessages: MessageDto[],
   events: SessionEventEnvelope[]
@@ -374,7 +404,10 @@ export function projectMessages(
     )
   })) satisfies ProjectedMessage[];
 
-  const projected = events.reduce(projectEvent, initialMessages);
+  const projected = coalesceDeltaEvents(events).reduce(
+    projectEvent,
+    initialMessages
+  );
 
   return sortMessages(projected).map(
     ({ __partEventMarks: _marks, ...message }) => message

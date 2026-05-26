@@ -1,4 +1,4 @@
-h1:TR+TodR/lvr/shrXo6N5RaWzk730g+/GIxgcP11nB8s=
+h1:G3/eKwNBGXXEdqarcRUPfZFK91QHAqlyyPga9RL5xoA=
 20260330144844_init_schema.sql h1:JlV6XwjA4iUC+MwPbgyn/qq/BT4zw1mUz5ytD8oN32k=
 20260428054903_context_skeleton_message_parts.sql h1:x3/LqWRovPzKh2L9PDBrJNkgDMdusqkN2ZwktMVi/XE=
 20260429101627_agent_runs_and_cancellation.sql h1:d4loRlJGgaXX4CGVT20G2A0r98ADyhB6Z2sQF600Imw=
@@ -6,3 +6,4 @@ h1:TR+TodR/lvr/shrXo6N5RaWzk730g+/GIxgcP11nB8s=
 20260508165230_tool_system_rebuild_core_tools.sql h1:u5Fs9mjgvADDnxaBDaJ/3o0rREjTdGdGtNy2YMD8j7Q=
 20260513152040_consolidate_variant_task_tools_and_drop_parent_task.sql h1:Om0BlfNZL+Us+O4aIjqABed63JcHgYEjpiIATRmQCWs=
 20260514065552_add_plan_exit_approval_kind.sql h1:viXlGLIwMb/PteYQwnM/r8PmvLl73RJwQlo/xZOX+BA=
+20260520080616_add_session_revert_state.sql h1:lxJN35z4svwx9ZC5o2fiQIAvRRDS1L5wtHTa+rVrpsU=

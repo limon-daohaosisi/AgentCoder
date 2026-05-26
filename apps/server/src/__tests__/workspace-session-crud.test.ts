@@ -5,12 +5,32 @@ import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { parseJson } from './server-test-helpers.js';
 
 const { app, environment } = dbTestContext;
+const repoRoot = path.resolve(import.meta.dirname, '../../../..');
 
 beforeEach(() => {
   resetTestDatabase();
 });
 
 test('workspace + session CRUD smoke path persists in sqlite', async () => {
+  const browseDefaultResponse = await app.request('/api/workspaces/browse');
+  assert.equal(browseDefaultResponse.status, 200);
+
+  const browseDefaultPayload = await parseJson<{
+    currentPath: string;
+    directories: Array<{ name: string; path: string }>;
+    rootLabel: string;
+    segments: Array<{ name: string; path: string }>;
+  }>(browseDefaultResponse);
+
+  assert.equal(browseDefaultPayload.data?.currentPath, repoRoot);
+  assert.equal(browseDefaultPayload.data?.rootLabel, 'Current Repo');
+  assert.ok(
+    browseDefaultPayload.data?.directories.some(
+      (directory) => directory.name === 'apps'
+    )
+  );
+  assert.equal(browseDefaultPayload.data?.segments.at(-1)?.path, repoRoot);
+
   const createWorkspaceResponse = await app.request('/api/workspaces', {
     body: JSON.stringify({ rootPath: environment.workspaceRoot }),
     headers: {
@@ -84,6 +104,31 @@ test('workspace + session CRUD smoke path persists in sqlite', async () => {
   );
   assert.ok(
     treePayload.data?.[0]?.children?.some((node) => node.name === 'src')
+  );
+
+  const browseWorkspaceResponse = await app.request(
+    `/api/workspaces/browse?path=${encodeURIComponent(environment.workspaceRoot)}`
+  );
+  assert.equal(browseWorkspaceResponse.status, 200);
+
+  const browseWorkspacePayload = await parseJson<{
+    currentPath: string;
+    directories: Array<{ name: string; path: string }>;
+    parentPath?: string;
+  }>(browseWorkspaceResponse);
+
+  assert.equal(
+    browseWorkspacePayload.data?.currentPath,
+    environment.workspaceRoot
+  );
+  assert.equal(
+    browseWorkspacePayload.data?.parentPath,
+    path.dirname(environment.workspaceRoot)
+  );
+  assert.ok(
+    browseWorkspacePayload.data?.directories.some(
+      (directory) => directory.name === 'src'
+    )
   );
 
   const createSessionResponse = await app.request('/api/sessions', {
@@ -186,6 +231,18 @@ test('workspace + session CRUD smoke path persists in sqlite', async () => {
 });
 
 test('workspace + session routes enforce the minimum Day 2 error contract', async () => {
+  const invalidBrowseResponse = await app.request(
+    `/api/workspaces/browse?path=${encodeURIComponent(
+      path.join(environment.workspaceRoot, 'missing')
+    )}`
+  );
+
+  assert.equal(invalidBrowseResponse.status, 400);
+  assert.equal(
+    (await parseJson(invalidBrowseResponse)).error,
+    `Workspace path does not exist: ${path.join(environment.workspaceRoot, 'missing')}`
+  );
+
   const missingWorkspacePathResponse = await app.request('/api/workspaces', {
     body: JSON.stringify({}),
     headers: {

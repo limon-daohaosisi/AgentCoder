@@ -12,6 +12,7 @@ type MessageListProps = {
   messages: MessageDto[];
   onApprove?: (approvalId: string) => void;
   onReject?: (approvalId: string) => void;
+  onRevert?: (messageId: string) => void;
   planFile?: SessionPlanFileDto;
 };
 
@@ -423,12 +424,14 @@ function MessageCard({
   message,
   onApprove,
   onReject,
+  onRevert,
   planFile
 }: {
   approvalsByToolCallId: Map<string, ApprovalDto>;
   message: MessageDto;
   onApprove?: (approvalId: string) => void;
   onReject?: (approvalId: string) => void;
+  onRevert?: (messageId: string) => void;
   planFile?: SessionPlanFileDto;
 }) {
   const isAssistant = message.role === 'assistant';
@@ -442,6 +445,17 @@ function MessageCard({
             : 'rounded-[18px] bg-[#4b4b4b] px-4 py-4 text-left text-white'
         }
       >
+        {!isAssistant ? (
+          <div className="mb-3 flex justify-end">
+            <button
+              className="rounded-full border border-white/15 px-3 py-1 text-[11px] font-semibold text-white/70 transition hover:border-white/30 hover:text-white"
+              onClick={() => onRevert?.(message.id)}
+              type="button"
+            >
+              回退到这里
+            </button>
+          </div>
+        ) : null}
         <div className="space-y-3">
           {message.content.length > 0 ? (
             message.content.map((part) => (
@@ -483,6 +497,7 @@ export function MessageList({
   messages,
   onApprove,
   onReject,
+  onRevert,
   planFile
 }: MessageListProps) {
   const approvalsByToolCallId = useMemo(() => {
@@ -509,6 +524,7 @@ export function MessageList({
           message={message}
           onApprove={onApprove}
           onReject={onReject}
+          onRevert={onRevert}
           planFile={planFile}
         />
       ))}

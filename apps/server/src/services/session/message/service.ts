@@ -136,11 +136,45 @@ export const messageService = {
     });
   },
 
-  listMessages(sessionId: string) {
-    return messageRepository.listBySession(sessionId).map((message) => ({
-      ...message,
-      content: messagePartRepository.listByMessage(message.id)
-    }));
+  listMessages(sessionId: string, options?: { includeReverted?: boolean }) {
+    const messages = messageRepository
+      .listBySession(sessionId)
+      .map((message) => ({
+        ...message,
+        content: messagePartRepository.listByMessage(message.id)
+      }));
+
+    if (options?.includeReverted) {
+      return messages;
+    }
+
+    const session = sessionRepository.getById(sessionId);
+    const targetMessageId = session?.revert?.targetMessageId;
+
+    if (!targetMessageId) {
+      return messages;
+    }
+
+    const targetIndex = messages.findIndex(
+      (message) => message.id === targetMessageId
+    );
+
+    if (targetIndex === -1) {
+      return messages;
+    }
+
+    const visiblePrefix = messages.slice(0, targetIndex);
+    const continuedAt = session?.revert?.continuedAt;
+
+    if (!continuedAt) {
+      return visiblePrefix;
+    }
+
+    const visibleSuffix = messages.filter(
+      (message) => message.createdAt >= continuedAt
+    );
+
+    return [...visiblePrefix, ...visibleSuffix];
   },
 
   updateMessageContent(id: string, content: MessagePart[]) {

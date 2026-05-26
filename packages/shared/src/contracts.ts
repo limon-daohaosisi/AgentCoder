@@ -33,6 +33,14 @@ export const createWorkspaceInputSchema = z.object({
 
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceInputSchema>;
 
+export const browseWorkspaceDirectoryQuerySchema = z.object({
+  path: z.string().trim().min(1).optional()
+});
+
+export type BrowseWorkspaceDirectoryQuery = z.infer<
+  typeof browseWorkspaceDirectoryQuerySchema
+>;
+
 export const createSessionInputSchema = z.object({
   defaultVariant: sessionVariantSchema.optional(),
   goalText: z.string().trim().min(1),

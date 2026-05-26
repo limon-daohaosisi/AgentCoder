@@ -8,6 +8,23 @@ export const list = appFactory.createHandlers((c) =>
   c.json({ data: workspaceService.listWorkspaces() })
 );
 
+export const browse = appFactory.createHandlers(
+  createValidator.query(WorkspacesSchemas.browse.query),
+  (c) => {
+    const { path } = c.req.valid('query');
+
+    try {
+      return c.json({ data: workspaceService.browseDirectory(path) });
+    } catch (error) {
+      if (isServiceError(error)) {
+        return c.json({ error: error.message }, error.status);
+      }
+
+      throw error;
+    }
+  }
+);
+
 export const create = appFactory.createHandlers(
   createValidator.json(WorkspacesSchemas.create.json),
   async (c) => {

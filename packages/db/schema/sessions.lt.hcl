@@ -53,6 +53,11 @@ table "sessions" {
     null = true
   }
 
+  column "revert_json" {
+    type = text
+    null = true
+  }
+
   column "created_at" {
     type = text
     null = false

@@ -656,7 +656,8 @@ export const sessions = sqliteTable(
     lastCheckpointJson: text('last_checkpoint_json'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    archivedAt: text('archived_at')
+    archivedAt: text('archived_at'),
+    revertJson: text('revert_json')
   },
   (table) => [
     index('idx_sessions_status').on(table.status),
