@@ -24,7 +24,9 @@ import { taskService } from '../services/session/task-service.js';
 import { sessionService } from '../services/session/service.js';
 import { agentRunService } from '../services/agent/run-service.js';
 import { fileSnapshotService } from '../services/agent/file-snapshot-service.js';
+import { nestedAgentsMemoryService } from '../services/agent/nested-agents-memory-service.js';
 import { promptSourceService } from '../services/agent/prompt-source-service.js';
+import { runtimeContextMessageService } from '../services/agent/runtime-context-message-service.js';
 import { toolStateService } from '../services/agent/tool-state-service.js';
 import { planService } from '../services/session/plan-service.js';
 
@@ -40,6 +42,47 @@ function buildToolServices() {
       requireFullRead?: boolean;
       sessionId: string;
     }) => fileSnapshotService.getLatestForPath(snapshotInput),
+    registerReadTarget: (input: { filePath: string; sessionId: string }) => {
+      nestedAgentsMemoryService.registerReadTarget(input);
+
+      const session = sessionService.getSession(input.sessionId);
+
+      if (!session) {
+        return;
+      }
+
+      const lastUserRuntime = messageService
+        .listMessages(input.sessionId)
+        .filter((message) => message.role === 'user')
+        .at(-1)?.runtime;
+      const sources = promptSourceService.buildRuntimeContextSources({
+        agentName: 'default',
+        lastUserRuntime,
+        model: {
+          modelId: process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
+          providerId: 'openai'
+        },
+        previousUserRuntime: undefined,
+        session,
+        sessionId: input.sessionId,
+        workspaceRoot: getWorkspaceRootPath(input.sessionId)
+      });
+
+      for (const source of sources) {
+        runtimeContextMessageService.persistRuntimeContextMessage({
+          key: source.sourceId,
+          parts: [
+            {
+              kind: source.kind,
+              metadata: source.metadata,
+              text: source.text
+            }
+          ],
+          sessionId: input.sessionId,
+          variant: lastUserRuntime?.variant
+        });
+      }
+    },
     getSessionPlanContext: (planContextInput: { sessionId: string }) =>
       Promise.resolve({
         filePath: planService.getOrCreateCurrentPlan(planContextInput.sessionId)
@@ -219,6 +262,8 @@ export function buildSessionCompactionDeps(
     modelFactory: createLanguageModel,
     persist: (callback) => Database.transaction(callback),
     processTurn: (input) => sessionProcessor.processTurn(input),
+    resetRuntimeContextState: (sessionId) =>
+      nestedAgentsMemoryService.clearSession(sessionId),
     repairDanglingToolPart: (input) => {
       if (input.part.state.status !== 'error') {
         return input.part;

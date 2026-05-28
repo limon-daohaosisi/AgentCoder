@@ -331,11 +331,26 @@ export class SessionProcessor {
 
     if (state.message) {
       this.persist(() => {
+        const nextProviderMetadata =
+          providerMetadata || input.request.cacheDebug
+            ? {
+                ...(providerMetadata ?? {}),
+                opencode: {
+                  ...(providerMetadata &&
+                  typeof providerMetadata.opencode === 'object' &&
+                  providerMetadata.opencode !== null
+                    ? providerMetadata.opencode
+                    : {}),
+                  cacheDebug: input.request.cacheDebug
+                }
+              }
+            : undefined;
+
         this.deps.updateMessageRuntime({
           finishReason,
           id: state.message!.id,
           modelResponseId,
-          providerMetadata,
+          providerMetadata: nextProviderMetadata,
           status: 'completed',
           tokenUsage
         });

@@ -41,15 +41,15 @@ test('resolveTools exposes task management tools in plan mode', () => {
   assert.ok(tools.includes('write'));
   assert.ok(tools.includes('edit'));
   assert.ok(tools.includes('plan_exit'));
-  assert.equal(tools.includes('bash'), false);
-  assert.equal(tools.includes('apply_patch'), false);
+  assert.ok(tools.includes('bash'));
+  assert.ok(tools.includes('apply_patch'));
 });
 
-test('resolveTools hides task_create in build mode but keeps execution tools', () => {
+test('resolveTools keeps full tool visibility in build mode', () => {
   const tools = resolveTools(createInput('build')).map((tool) => tool.name);
 
-  assert.equal(tools.includes('task_create'), false);
-  assert.equal(tools.includes('plan_exit'), false);
+  assert.ok(tools.includes('task_create'));
+  assert.ok(tools.includes('plan_exit'));
   assert.ok(tools.includes('task_list'));
   assert.ok(tools.includes('task_get'));
   assert.ok(tools.includes('task_update'));

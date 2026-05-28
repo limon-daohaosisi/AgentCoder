@@ -58,6 +58,7 @@ export type MessageRuntimeMetadata = {
   format?:
     | { type: 'text' }
     | { schema: Record<string, unknown>; type: 'json_schema' };
+  runtimeContextInjected?: boolean;
   toolOverrides?: Partial<Record<ToolName, boolean>>;
   userSystem?: string;
   variant?: SessionVariant;
@@ -124,6 +125,18 @@ export type MessagePart =
       type: 'text';
     })
   | (PartBase & {
+      kind:
+        | 'environment'
+        | 'mode_state'
+        | 'mode_transition'
+        | 'nested_agents_memory'
+        | 'plan_file';
+      metadata?: Record<string, unknown>;
+      synthetic?: boolean;
+      text: string;
+      type: 'runtime_context';
+    })
+  | (PartBase & {
       filename?: string;
       mime: string;
       source?: {
@@ -183,6 +196,17 @@ export type CreateMessagePartInput =
       sessionId?: string;
       updatedAt?: string;
     } & Omit<Extract<MessagePart, { type: 'text' }>, PartInputBaseKeys>)
+  | ({
+      createdAt?: string;
+      id?: string;
+      messageId?: string;
+      order?: number;
+      sessionId?: string;
+      updatedAt?: string;
+    } & Omit<
+      Extract<MessagePart, { type: 'runtime_context' }>,
+      PartInputBaseKeys
+    >)
   | ({
       createdAt?: string;
       id?: string;

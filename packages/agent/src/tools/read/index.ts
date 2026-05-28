@@ -118,6 +118,10 @@ export const readToolDefinition: ToolDefinition<
       snapshot,
       toolCallId: context.toolCallId
     });
+    context.services.registerReadTarget?.({
+      filePath,
+      sessionId: context.sessionId
+    });
 
     return {
       bytesRead: Buffer.byteLength(fullContent, 'utf8'),

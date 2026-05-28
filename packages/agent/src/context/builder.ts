@@ -3,7 +3,7 @@ import { DEFAULT_TOOL_OUTPUT_POLICY, toolByName } from '../tools/index.js';
 import { resolvePromptBundle } from './prompt-bundle.js';
 import {
   buildCoreSystemBlock,
-  buildEnvironmentSystemBlock,
+  buildSystemContext,
   buildRuntimeInstructionBlocks
 } from './system-context.js';
 import type {
@@ -109,7 +109,7 @@ function countContextChars(messages: ContextMessage[], systemText: string) {
 
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type === 'text') {
+      if (part.type === 'text' || part.type === 'runtime_context') {
         chars += part.text.length;
       } else if (part.type === 'file') {
         chars +=
@@ -227,6 +227,14 @@ function projectPart(
         sourcePartId: part.id,
         text: part.text,
         type: 'text'
+      };
+    case 'runtime_context':
+      return {
+        kind: part.kind,
+        metadata: part.metadata,
+        sourcePartId: part.id,
+        text: part.text,
+        type: 'runtime_context'
       };
     case 'file':
       return {
@@ -354,20 +362,26 @@ export class ContextBuilder {
         sessionId: input.sessionId,
         workspaceRoot: input.workspaceRoot
       }) ?? [];
+    const fullSystem = buildSystemContext({
+      agentName,
+      lastUserRuntime: lastUserMessage.runtime,
+      model,
+      previousUserRuntime,
+      session,
+      workspaceRoot: input.workspaceRoot
+    });
+    const [coreBlock, ...remainingSystemBlocks] = fullSystem;
+    const stableSystemBlocks = remainingSystemBlocks.filter(
+      (block) => block.source === 'instruction'
+    );
+    const runtimeInstructionBlocks = remainingSystemBlocks.filter(
+      (block) => block.source !== 'instruction'
+    );
     const bundle = resolvePromptBundle({
-      coreBlock: buildCoreSystemBlock(),
-      environmentBlock: buildEnvironmentSystemBlock({
-        agentName,
-        model,
-        session,
-        workspaceRoot: input.workspaceRoot
-      }),
+      coreBlock: coreBlock ?? buildCoreSystemBlock(),
       memorySources,
-      runtimeInstructionBlocks: buildRuntimeInstructionBlocks({
-        lastUserRuntime: lastUserMessage.runtime,
-        planContext: this.deps.getSessionPlanContext?.(input.sessionId),
-        previousUserRuntime
-      })
+      stableSystemBlocks,
+      runtimeInstructionBlocks
     });
     const system = bundle.systemBlocks;
     debug.promptSources = bundle.debugSources;

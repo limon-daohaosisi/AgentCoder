@@ -62,7 +62,8 @@ test('GET /api/sessions/:sessionId/plan-file returns current plan file content',
 
   assert.equal(payload.data?.plan.sessionId, session.id);
   assert.equal(payload.data?.filePath, payload.data?.plan.filePath);
-  assert.match(payload.data?.content ?? '', /# Plan/);
+  assert.equal(payload.data?.exists, false);
+  assert.equal(payload.data?.content, '');
 });
 
 test('planService.buildPlanExitApprovalPayload returns full plan file data', async () => {
@@ -74,14 +75,14 @@ test('planService.buildPlanExitApprovalPayload returns full plan file data', asy
     workspaceId: workspace.id
   });
 
-  const payload = await planService.buildPlanExitApprovalPayload({
-    sessionId: session.id,
-    summary: 'Ready to implement'
-  });
-
-  assert.match(payload.planContent, /# Plan/);
-  assert.match(payload.planFilePath, /^\.mycoding\/plans\/.+\.md$/);
-  assert.equal(payload.summary, 'Ready to implement');
+  await assert.rejects(
+    () =>
+      planService.buildPlanExitApprovalPayload({
+        sessionId: session.id,
+        summary: 'Ready to implement'
+      }),
+    /Current plan file does not exist yet|Plan file/i
+  );
 });
 
 test('GET /api/sessions/:sessionId/plan-board returns ordered tasks and approval aggregation', async () => {

@@ -20,7 +20,7 @@ packages/
 ```bash
 pnpm install
 pnpm dev:web
-export OPENAI_BASE_URL="https://code.contextid.cn/v1"
+export OPENAI_BASE_URL="https://code.contextid.cn"
 export OPENAI_API_KEY="sk-xxx"
 export OPENAI_MODEL="gpt-5.4"
 DATABASE_URL="sqlite://../../apps/server/data/opencode.db" pnpm db:apply

@@ -132,6 +132,7 @@ export type SessionCompactionDeps = Pick<
   }): Promise<ProcessorResult>;
   persist?<T>(callback: () => T): T;
   streamModelResponse: StreamModelResponse;
+  resetRuntimeContextState?(sessionId: string): void;
   updateMessageRuntime?(input: UpdateMessageRuntimeInput): MessageDto | null;
   updateMessagePart?(part: UpdateMessagePartInput): MessagePart | null;
   updateToolPartWithToolCall(input: UpdateToolPartWithToolCallInput): {
@@ -451,11 +452,16 @@ function buildRequestLike(input: {
   compactSystem: string;
   context: BuiltContext;
   modelFactory: ModelFactory;
+  runId: string;
+  sessionId: string;
   transcript: string;
 }): AiSdkTurnRequest {
   const model = input.context.lastUser.model;
 
   return {
+    debugRequestKind: 'compaction',
+    debugRunId: input.runId,
+    debugSessionId: input.sessionId,
     messages: [
       {
         content: [{ text: input.transcript, type: 'text' }],
@@ -642,6 +648,8 @@ export class SessionCompaction {
         ),
         context: input.context,
         modelFactory: this.deps.modelFactory,
+        runId: input.runId,
+        sessionId: input.sessionId,
         transcript: buildCompactionPrompt({
           preCompactTokenCount,
           transcript
@@ -709,6 +717,7 @@ export class SessionCompaction {
         messageIds: sourceMessages.map((message) => message.id)
       });
     });
+    this.deps.resetRuntimeContextState?.(input.sessionId);
 
     return {
       kind: 'completed',

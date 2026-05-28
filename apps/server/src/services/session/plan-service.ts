@@ -13,6 +13,7 @@ import { approvalRepository } from '../../repositories/approval-repository.js';
 import { planRepository } from '../../repositories/plan-repository.js';
 import { sessionRepository } from '../../repositories/session-repository.js';
 import { taskRepository } from '../../repositories/task-repository.js';
+import { runtimeContextMessageService } from '../agent/runtime-context-message-service.js';
 import { planFileService } from './plan-file-service.js';
 
 type CurrentPlanContext = {
@@ -138,7 +139,18 @@ export const planService = {
 
   async getSessionPlanFile(sessionId: string): Promise<SessionPlanFileDto> {
     const { plan } = this.getOrCreateCurrentPlan(sessionId);
-    return planFileService.getPlanFile(plan);
+    const planFile = await planFileService.getPlanFile(plan);
+
+    if (planFile.exists) {
+      runtimeContextMessageService.persistPlanFileReference({
+        filePath: planFile.filePath,
+        planId: plan.id,
+        sessionId,
+        variant: 'plan'
+      });
+    }
+
+    return planFile;
   },
 
   async buildPlanExitApprovalPayload(input: {
@@ -147,6 +159,13 @@ export const planService = {
   }): Promise<PlanExitApprovalPayload> {
     const { plan } = this.getOrCreateCurrentPlan(input.sessionId);
     const planFile = await this.getSessionPlanFile(input.sessionId);
+
+    if (!planFile.exists) {
+      throw new ServiceError(
+        'Current plan file does not exist yet. Create it before requesting plan_exit.',
+        409
+      );
+    }
 
     return {
       ...(input.summary ? { summary: input.summary.trim() } : {}),

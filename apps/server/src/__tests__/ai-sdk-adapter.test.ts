@@ -1,7 +1,6 @@
 import {
   ContextBuilder,
   bashInputSchema,
-  buildEnvironmentSystemBlock,
   DEFAULT_TOOL_OUTPUT_POLICY,
   filterCompacted,
   readInputSchema,
@@ -12,11 +11,13 @@ import {
   type ContextPart,
   type ResolvedTool
 } from '@opencode/agent';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { dbTestContext, resetTestDatabase } from './db-test-context.js';
+import { runtimeContextMessageService } from '../services/agent/runtime-context-message-service.js';
+import { runtimeContextService } from '../services/agent/runtime-context-service.js';
 
 const {
   environment,
@@ -47,19 +48,6 @@ function createEmptyDebug(): ContextBuildDebug {
     skippedParts: []
   };
 }
-
-test('environment block omits session and date from stable prompt prefix', () => {
-  const session = createSession();
-  const block = buildEnvironmentSystemBlock({
-    agentName: 'default',
-    model: { modelId: 'gpt-4.1-mini', providerId: 'openai' },
-    session,
-    workspaceRoot: environment.workspaceRoot
-  });
-
-  assert.equal(block.text.includes('Session id:'), false);
-  assert.equal(block.text.includes("Today's date:"), false);
-});
 
 test('ContextBuilder and AI SDK adapter rebuild tool call/result context from parts', () => {
   const session = createSession();
@@ -109,41 +97,50 @@ test('ContextBuilder and AI SDK adapter rebuild tool call/result context from pa
   assert.ok(
     context.debug.promptSources.some((source) => source.kind === 'core')
   );
-  assert.deepEqual(messages, [
-    {
-      content: [{ text: 'Read src/index.ts', type: 'text' }],
-      role: 'user'
-    },
-    {
-      content: [
-        { text: 'I will inspect the file.', type: 'text' },
-        {
-          input: { filePath: 'src/index.ts' },
-          toolCallId: 'model-call-1',
-          toolName: 'read',
-          type: 'tool-call'
-        }
-      ],
-      role: 'assistant'
-    },
-    {
-      content: [
-        {
-          output: {
-            type: 'json',
-            value: {
-              content: 'export const ok = true;\n',
-              filePath: 'src/index.ts'
-            }
-          },
-          toolCallId: 'model-call-1',
-          toolName: 'read',
-          type: 'tool-result'
-        }
-      ],
-      role: 'tool'
-    }
-  ]);
+  const userMessages = messages.filter((message) => message.role === 'user');
+  const assistantMessage = messages.find(
+    (message) => message.role === 'assistant'
+  );
+  const toolMessage = messages.find((message) => message.role === 'tool');
+
+  assert.ok(
+    userMessages.some(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some(
+          (part) => 'text' in part && part.text === 'Read src/index.ts'
+        )
+    )
+  );
+  assert.deepEqual(assistantMessage, {
+    content: [
+      { text: 'I will inspect the file.', type: 'text' },
+      {
+        input: { filePath: 'src/index.ts' },
+        toolCallId: 'model-call-1',
+        toolName: 'read',
+        type: 'tool-call'
+      }
+    ],
+    role: 'assistant'
+  });
+  assert.deepEqual(toolMessage, {
+    content: [
+      {
+        output: {
+          type: 'json',
+          value: {
+            content: 'export const ok = true;\n',
+            filePath: 'src/index.ts'
+          }
+        },
+        toolCallId: 'model-call-1',
+        toolName: 'read',
+        type: 'tool-result'
+      }
+    ],
+    role: 'tool'
+  });
 });
 
 test('Tool adapter exposes manual AI SDK tools and separate approval policies', () => {
@@ -383,7 +380,10 @@ test('ContextBuilder repairs dangling tools outside active approval waits', () =
     sessionId: session.id,
     workspaceRoot: environment.workspaceRoot
   });
-  const toolPart = context.messages[1]?.parts[0];
+  const assistantMessage = context.messages.find(
+    (message) => message.role === 'assistant'
+  );
+  const toolPart = assistantMessage?.parts[0];
 
   assert.equal(repaired, true);
   assert.equal(toolPart?.type, 'tool');
@@ -645,17 +645,36 @@ test('ContextBuilder injects workspace AGENTS.md as project memory with debug so
     sessionId: session.id,
     workspaceRoot: environment.workspaceRoot
   });
+  const memoryBlock = context.system.find((block) => block.source === 'memory');
 
-  assert.equal(context.system[1]?.source, 'memory');
-  assert.match(context.system[1]?.text ?? '', /<project-memory/);
-  assert.match(context.system[1]?.text ?? '', /Use pnpm\./);
+  assert.ok(memoryBlock);
+  assert.match(memoryBlock?.text ?? '', /<project-memory/);
+  assert.match(memoryBlock?.text ?? '', /Use pnpm\./);
   assert.deepEqual(
-    context.system.map((block) => block.source),
-    ['core', 'memory', 'environment']
+    context.system.map((block) => block.source).includes('core'),
+    true
   );
-  assert.deepEqual(
-    context.debug.promptSources.map((source) => source.kind),
-    ['core', 'memory', 'environment']
+  assert.equal(
+    context.system.map((block) => block.source).includes('memory'),
+    true
+  );
+  assert.equal(
+    context.system.map((block) => block.source).includes('instruction'),
+    true
+  );
+  assert.equal(
+    context.debug.promptSources.map((source) => source.kind).includes('core'),
+    true
+  );
+  assert.equal(
+    context.debug.promptSources.map((source) => source.kind).includes('memory'),
+    true
+  );
+  assert.equal(
+    context.debug.promptSources
+      .map((source) => source.kind)
+      .includes('instruction'),
+    true
   );
   assert.equal(context.debug.promptSources[1]?.origin, 'AGENTS.md');
 });
@@ -698,8 +717,11 @@ test('ContextBuilder live-reads prompt memory sources across builds', () => {
     workspaceRoot: environment.workspaceRoot
   });
 
-  assert.match(first.system[1]?.text ?? '', /Version one/);
-  assert.match(second.system[1]?.text ?? '', /Version two/);
+  const firstMemory = first.system.find((block) => block.source === 'memory');
+  const secondMemory = second.system.find((block) => block.source === 'memory');
+
+  assert.match(firstMemory?.text ?? '', /Version one/);
+  assert.match(secondMemory?.text ?? '', /Version two/);
 });
 
 test('ContextBuilder emits plan to build transition reminder from prior user runtime', () => {
@@ -731,22 +753,24 @@ test('ContextBuilder emits plan to build transition reminder from prior user run
     sessionId: session.id,
     workspaceRoot: environment.workspaceRoot
   });
-  const instructionBlock = context.system.find(
-    (block) => block.source === 'instruction'
-  );
+  const sources = runtimeContextService.listRuntimeContextSources({
+    agentName: context.lastUser.agentName,
+    lastUserRuntime: context.lastUser.runtime,
+    model: context.lastUser.model,
+    planFilePath: undefined,
+    previousUserRuntime: { variant: 'plan' },
+    session: sessionService.getSession(session.id)!,
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+  const runtimeText = sources
+    .filter((source) => source.kind === 'mode_transition')
+    .map((source) => source.text)
+    .join('\n\n');
 
-  assert.match(
-    instructionBlock?.text ?? '',
-    /Your operational mode has changed from plan to build\./
-  );
-  assert.match(
-    instructionBlock?.text ?? '',
-    /You are no longer in read-only mode\./
-  );
-  assert.match(
-    instructionBlock?.text ?? '',
-    /utilize your arsenal of tools as needed\./
-  );
+  assert.match(runtimeText ?? '', /Mode transition:/);
+  assert.match(runtimeText ?? '', /moved from plan mode to build mode/);
+  assert.match(runtimeText ?? '', /may now modify files and run commands/);
 });
 
 test('ContextBuilder emits strict JSON schema format overlay', () => {
@@ -789,6 +813,60 @@ test('ContextBuilder emits strict JSON schema format overlay', () => {
   assert.match(
     formatBlock?.text ?? '',
     /Do not add explanatory text before or after the JSON\./
+  );
+});
+
+test('ContextBuilder reads durable nested AGENTS runtime_context messages from transcript storage', () => {
+  const session = createSession();
+  const nestedDir = path.join(environment.workspaceRoot, 'apps', 'server');
+  const nestedAgentsPath = path.join(nestedDir, 'AGENTS.md');
+
+  mkdirSync(nestedDir, { recursive: true });
+  writeFileSync(
+    nestedAgentsPath,
+    '# Nested Rules\nStay inside server boundaries.\n'
+  );
+  runtimeContextMessageService.persistRuntimeContextMessage({
+    key: 'nested_agents:apps/server/AGENTS.md',
+    parts: [
+      {
+        kind: 'nested_agents_memory',
+        metadata: { path: 'apps/server/AGENTS.md', truncated: false },
+        text: '<project-memory source="AGENTS.md" path="apps/server/AGENTS.md"># Nested Rules\\nStay inside server boundaries.\\n</project-memory>'
+      }
+    ],
+    sessionId: session.id,
+    variant: 'plan'
+  });
+  messageService.createMessage({
+    content: [{ text: 'Inspect server code', type: 'text' }],
+    role: 'user',
+    sessionId: session.id
+  });
+
+  const builder = new ContextBuilder({
+    getSession: (sessionId) => sessionService.getSession(sessionId),
+    listMessages: (sessionId) => messageService.listMessages(sessionId)
+  });
+  const context = builder.build({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+  const nestedMessage = context.messages.find((message) =>
+    message.parts.some(
+      (part) =>
+        part.type === 'runtime_context' && part.kind === 'nested_agents_memory'
+    )
+  );
+
+  assert.ok(nestedMessage);
+  assert.ok(
+    nestedMessage?.parts.some(
+      (part) =>
+        part.type === 'runtime_context' &&
+        part.kind === 'nested_agents_memory' &&
+        part.text.includes('Stay inside server boundaries.')
+    )
   );
 });
 
