@@ -1,5 +1,6 @@
-import type { PromptMemorySource } from '@opencode/agent';
+import type { PromptMemorySource, RuntimeContextSource } from '@opencode/agent';
 import type { MessageRuntimeMetadata, SessionDto } from '@opencode/shared';
+import { runtimeContextService } from './runtime-context-service.js';
 import { workspaceMemoryService } from './workspace-memory-service.js';
 
 type ListPromptMemorySourcesInput = {
@@ -16,5 +17,14 @@ export const promptSourceService = {
     input: ListPromptMemorySourcesInput
   ): PromptMemorySource[] {
     return workspaceMemoryService.listPromptMemorySources(input.workspaceRoot);
+  },
+
+  buildRuntimeContextSources(
+    input: ListPromptMemorySourcesInput & {
+      planFilePath?: string;
+      previousUserRuntime?: MessageRuntimeMetadata;
+    }
+  ): RuntimeContextSource[] {
+    return runtimeContextService.listRuntimeContextSources(input);
   }
 };

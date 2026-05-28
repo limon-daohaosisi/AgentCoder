@@ -14,6 +14,7 @@ export type {
   LifecycleResult,
   LifecycleTerminalReason
 } from './lifecycle.js';
+export { dumpSentModelRequest } from './model-request-debug.js';
 export { streamModelResponse } from './model-client.js';
 export type {
   ModelResponseStream,
@@ -69,7 +70,6 @@ export { resolveTools } from './context/tool-registry.js';
 export { resolvePromptBundle } from './context/prompt-bundle.js';
 export {
   buildCoreSystemBlock,
-  buildEnvironmentSystemBlock,
   buildRuntimeInstructionBlocks,
   buildSystemContext
 } from './context/system-context.js';

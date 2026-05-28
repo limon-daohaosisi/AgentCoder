@@ -1,6 +1,6 @@
 import { SessionCompaction, type StreamModelResponse } from '@opencode/agent';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, test } from 'node:test';
 import type { MessagePart } from '@opencode/shared';
@@ -8,6 +8,7 @@ import { dbTestContext, resetTestDatabase } from './db-test-context.js';
 import { SessionInteractionService } from '../services/agent/interaction-service.js';
 import { approvalRepository } from '../repositories/approval-repository.js';
 import { artifactRepository } from '../repositories/artifact-repository.js';
+import { nestedAgentsMemoryService } from '../services/agent/nested-agents-memory-service.js';
 import { buildSessionCompactionDeps } from '../wiring/agent.js';
 
 const {
@@ -650,4 +651,47 @@ test('manual compact inherits workspace AGENTS.md in compact system prompt', asy
   assert.match(seenSystems[0] ?? '', /<project-memory source="AGENTS.md"/);
   assert.match(seenSystems[0] ?? '', /Preserve test constraints\./);
   assert.match(seenSystems[0] ?? '', /Do not call tools\./);
+});
+
+test('nested AGENTS memory can be re-injected after compact clears runtime context state', () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const session = sessionService.createSession({
+    goalText: 'Re-inject nested AGENTS after compact',
+    workspaceId: workspace.id
+  });
+  const nestedDir = path.join(environment.workspaceRoot, 'packages', 'agent');
+  const nestedAgentsPath = path.join(nestedDir, 'AGENTS.md');
+
+  mkdirSync(nestedDir, { recursive: true });
+  writeFileSync(
+    nestedAgentsPath,
+    '# Agent Rules\nKeep agent package focused.\n'
+  );
+
+  nestedAgentsMemoryService.registerReadTarget({
+    filePath: 'packages/agent/src/index.ts',
+    sessionId: session.id
+  });
+  const first = nestedAgentsMemoryService.consumeRuntimeSources({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  assert.equal(first.length, 1);
+  assert.match(first[0]?.text ?? '', /Keep agent package focused\./);
+
+  nestedAgentsMemoryService.clearSession(session.id);
+  nestedAgentsMemoryService.registerReadTarget({
+    filePath: 'packages/agent/src/index.ts',
+    sessionId: session.id
+  });
+  const second = nestedAgentsMemoryService.consumeRuntimeSources({
+    sessionId: session.id,
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  assert.equal(second.length, 1);
+  assert.match(second[0]?.text ?? '', /Keep agent package focused\./);
 });

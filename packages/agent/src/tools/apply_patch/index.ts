@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createFileDiff } from '../diff.js';
 import type { ToolDefinition } from '../types.js';
 import { formatDiagnosticsText } from '../shared/diagnostics.js';
+import { assertBuildOnlyToolAllowed } from '../shared/mode-policy.js';
 import {
   buildFileSnapshotArtifact,
   sha256Text
@@ -454,6 +455,7 @@ export const applyPatchToolDefinition: ToolDefinition<
     text: { maxChars: 6_000, visibleToModel: true }
   },
   async buildApproval({ context, input }) {
+    assertBuildOnlyToolAllowed({ context, toolName: 'apply_patch' });
     const plan = await planPatch({
       patchText: input.patchText,
       workspaceRoot: context.workspaceRoot
@@ -469,6 +471,7 @@ export const applyPatchToolDefinition: ToolDefinition<
   },
   description: APPLY_PATCH_TOOL_PROMPT,
   async execute({ approvalPayload, context, input }) {
+    assertBuildOnlyToolAllowed({ context, toolName: 'apply_patch' });
     let plan: Awaited<ReturnType<typeof planPatch>>;
 
     try {

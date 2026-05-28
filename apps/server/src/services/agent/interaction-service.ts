@@ -29,8 +29,8 @@ import { sessionService } from '../session/service.js';
 import { sessionResumeService } from '../session/resume-service.js';
 import { sessionEventService } from '../session-events/event-service.js';
 import { agentRunService } from './run-service.js';
+import { runtimeContextMessageService } from './runtime-context-message-service.js';
 import { toolStateService } from './tool-state-service.js';
-import { planService } from '../session/plan-service.js';
 import { workspaceSnapshotService } from './workspace-snapshot-service.js';
 
 type ResolveApprovalContext =
@@ -118,10 +118,6 @@ export class SessionInteractionService {
               revertedSession?.defaultVariant ?? session.defaultVariant,
             sessionId: input.sessionId
           });
-
-          if (variant === 'plan') {
-            planService.getOrCreateCurrentPlan(input.sessionId);
-          }
 
           const normalized = normalizePrompt({
             content: input.content,
@@ -438,9 +434,16 @@ export class SessionInteractionService {
           const planExitMessage =
             input.decision === 'approved' &&
             updatedApproval.kind === 'plan_exit'
-              ? messageService.createMessage({
-                  content: [
+              ? runtimeContextMessageService.persistRuntimeContextMessage({
+                  key: `mode_transition:${
+                    (updatedApproval.payload as PlanExitApprovalPayload).planId
+                  }:${
+                    (updatedApproval.payload as PlanExitApprovalPayload)
+                      .planFilePath
+                  }`,
+                  parts: [
                     {
+                      kind: 'mode_transition',
                       metadata: {
                         approvalId: updatedApproval.id,
                         planFilePath: (
@@ -450,19 +453,12 @@ export class SessionInteractionService {
                           updatedApproval.payload as PlanExitApprovalPayload
                         ).planId
                       },
-                      synthetic: true,
-                      text: 'The plan has been approved. Begin implementation according to the current plan file and task list.',
-                      type: 'text'
+                      text: 'The plan has been approved. Begin implementation according to the current plan file and task list.'
                     }
                   ],
-                  role: 'user',
                   runId,
-                  runtime: {
-                    format: { type: 'text' },
-                    variant: 'build'
-                  },
                   sessionId: approval.sessionId,
-                  status: 'completed'
+                  variant: 'build'
                 })
               : undefined;
 

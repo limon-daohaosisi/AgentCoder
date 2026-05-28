@@ -78,6 +78,7 @@ export type ToolServices = {
     requireFullRead?: boolean;
     sessionId: string;
   }): Promise<FileSnapshotStoreLookup | null>;
+  registerReadTarget?(input: { filePath: string; sessionId: string }): void;
   getSessionTaskContext?(input: { sessionId: string }): Promise<{
     currentPlanId?: string;
     currentTaskId?: string;

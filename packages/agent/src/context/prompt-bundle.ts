@@ -7,8 +7,8 @@ import type {
 
 type PromptBundleResolverInput = {
   coreBlock: ContextSystemBlock;
-  environmentBlock: ContextSystemBlock;
   memorySources: PromptMemorySource[];
+  stableSystemBlocks?: ContextSystemBlock[];
   runtimeInstructionBlocks: ContextSystemBlock[];
 };
 
@@ -41,7 +41,7 @@ export function resolvePromptBundle(
   const systemBlocks: ContextSystemBlock[] = [
     input.coreBlock,
     ...input.memorySources.map(toMemoryBlock),
-    input.environmentBlock,
+    ...(input.stableSystemBlocks ?? []),
     ...input.runtimeInstructionBlocks
   ];
 
@@ -54,7 +54,11 @@ export function resolvePromptBundle(
         truncated: source.truncated
       })
     ),
-    toDebugSource(input.environmentBlock, { sourceId: 'runtime_environment' }),
+    ...(input.stableSystemBlocks ?? []).map((block, index) =>
+      toDebugSource(block, {
+        sourceId: `${block.source}_stable_${index + 1}`
+      })
+    ),
     ...input.runtimeInstructionBlocks.map((block, index) =>
       toDebugSource(block, {
         sourceId: `${block.source}_${index + 1}`

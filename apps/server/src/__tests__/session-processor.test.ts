@@ -20,6 +20,7 @@ const {
   environment,
   fileSnapshotService,
   messageService,
+  planFileService,
   sessionEventService,
   sessionService,
   workspaceService
@@ -494,6 +495,10 @@ test('SessionProcessor auto-executes current plan file edits and still attaches 
   const run = agentRunService.createRun({ sessionId: session.id });
   const plan = planService.getSessionPlanBoard(session.id);
   const planFile = await planService.getSessionPlanFile(session.id);
+  await planFileService.createPlanFile({
+    content: '# Plan\n\n## Goal\n\nTrack runtime task linkage\n\n',
+    plan: plan.currentPlan!
+  });
   const filePath = path.join(environment.workspaceRoot, planFile.filePath);
   const content = await readFile(filePath, 'utf8');
   const fileStat = await stat(filePath);
@@ -532,9 +537,9 @@ test('SessionProcessor auto-executes current plan file edits and still attaches 
     sessionId: session.id,
     snapshot: {
       fullRead: true,
-      lineCount: 1,
+      lineCount: 5,
       mtimeMs: fileStat.mtimeMs,
-      path: 'src/index.ts',
+      path: planFile.filePath,
       readAt: '2026-04-27T00:00:00.000Z',
       sha256: createHash('sha256').update(content).digest('hex'),
       size: fileStat.size,
@@ -808,8 +813,12 @@ test('SessionProcessor fails multiple approval-required tools instead of creatin
 test('SessionProcessor pauses for plan_exit approval with full plan payload', async () => {
   const session = createSession();
   const run = agentRunService.createRun({ sessionId: session.id });
+  const board = planService.getSessionPlanBoard(session.id);
 
-  await planService.getSessionPlanFile(session.id);
+  await planFileService.createPlanFile({
+    content: '# Plan\n\n## Goal\n\nReady for implementation\n',
+    plan: board.currentPlan!
+  });
 
   const processor = new SessionProcessor(
     buildSessionProcessorDeps({
@@ -866,5 +875,8 @@ test('SessionProcessor pauses for plan_exit approval with full plan payload', as
     String(result.approval.payload.planFilePath ?? ''),
     /^\.mycoding\/plans\/.+\.md$/
   );
-  assert.match(String(result.approval.payload.planContent ?? ''), /# Plan/);
+  assert.match(
+    String(result.approval.payload.planContent ?? ''),
+    /Ready for implementation/
+  );
 });

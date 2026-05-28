@@ -379,6 +379,17 @@ function MessagePartRenderer({
   switch (part.type) {
     case 'text':
       return <MarkdownContent>{part.text}</MarkdownContent>;
+    case 'runtime_context':
+      return (
+        <section className="rounded-[16px] border border-white/10 bg-[#1d1d1d] px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">
+            Runtime Context
+          </p>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/68">
+            {part.text}
+          </p>
+        </section>
+      );
     case 'reasoning':
       return (
         <section className="rounded-[16px] bg-amber-300/8 px-4 py-4">

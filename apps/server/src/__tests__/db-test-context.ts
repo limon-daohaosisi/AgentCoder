@@ -15,6 +15,8 @@ const [
   { fileSnapshotService },
   { messageService },
   { messagePartService },
+  { planFileService },
+  { nestedAgentsMemoryService },
   { sessionInteractionService },
   { toolStateService },
   { sessionEventService },
@@ -30,6 +32,8 @@ const [
   import('../services/agent/file-snapshot-service.js'),
   import('../services/session/message/service.js'),
   import('../services/session/message/part-service.js'),
+  import('../services/session/plan-file-service.js'),
+  import('../services/agent/nested-agents-memory-service.js'),
   import('../services/agent/interaction-service.js'),
   import('../services/agent/tool-state-service.js'),
   import('../services/session-events/event-service.js'),
@@ -71,6 +75,8 @@ export const dbTestContext = {
   messageService,
   messagePartService,
   partService,
+  planFileService,
+  nestedAgentsMemoryService,
   sessionEventService,
   sessionInteractionService,
   sessionRecoveryService,
@@ -82,6 +88,7 @@ export const dbTestContext = {
 
 export function resetTestDatabase() {
   sqlite.exec('DELETE FROM workspaces;');
+  nestedAgentsMemoryService.clearSession('session-1');
 
   const agentsPath = path.join(environment.workspaceRoot, 'AGENTS.md');
 

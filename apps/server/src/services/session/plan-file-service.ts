@@ -6,18 +6,6 @@ import { workspaceRepository } from '../../repositories/workspace-repository.js'
 import { sessionRepository } from '../../repositories/session-repository.js';
 
 const PLAN_DIRECTORY = '.mycoding/plans';
-const DEFAULT_PLAN_TEMPLATE = `# Plan
-
-## Goal
-
-## Constraints
-
-## Approach
-
-## Risks
-
-## Execution Outline
-`;
 
 function getSessionWorkspaceRoot(sessionId: string) {
   const session = sessionRepository.getById(sessionId);
@@ -69,10 +57,22 @@ export const planFileService = {
     }
 
     await mkdir(path.dirname(absoluteFilePath), { recursive: true });
-    await writeFile(absoluteFilePath, DEFAULT_PLAN_TEMPLATE, 'utf8');
 
     return {
       exists: false,
+      filePath: relativeFilePath
+    };
+  },
+
+  async createPlanFile(input: { content: string; plan: PlanDto }) {
+    const workspaceRoot = getSessionWorkspaceRoot(input.plan.sessionId);
+    const relativeFilePath = this.buildRelativeFilePath(input.plan.id);
+    const absoluteFilePath = path.join(workspaceRoot, relativeFilePath);
+
+    await mkdir(path.dirname(absoluteFilePath), { recursive: true });
+    await writeFile(absoluteFilePath, input.content, 'utf8');
+
+    return {
       filePath: relativeFilePath
     };
   },
@@ -83,10 +83,10 @@ export const planFileService = {
     const absoluteFilePath = path.join(workspaceRoot, relativeFilePath);
     const existedBeforeEnsure = await fileExists(absoluteFilePath);
 
-    await this.ensurePlanFile(plan);
-
     return {
-      content: await readFile(absoluteFilePath, 'utf8'),
+      content: existedBeforeEnsure
+        ? await readFile(absoluteFilePath, 'utf8')
+        : '',
       exists: existedBeforeEnsure,
       filePath: relativeFilePath,
       plan: this.buildPlanDto(plan)

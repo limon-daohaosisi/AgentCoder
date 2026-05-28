@@ -105,6 +105,9 @@ export class RunLoop {
             modelFactory: this.deps.modelFactory,
             tools: resolvedTools
           });
+          builtRequest.debugRequestKind = 'run_loop';
+          builtRequest.debugRunId = input.runId;
+          builtRequest.debugSessionId = input.sessionId;
 
           return { context, request: builtRequest, resolvedTools };
         };

@@ -2,6 +2,7 @@ import type { LanguageModel, ModelMessage } from 'ai';
 import { COMPACTED_TOOL_PLACEHOLDER } from '../session-compaction.js';
 import { DEFAULT_TOOL_OUTPUT_POLICY } from '../tools/index.js';
 import { truncateText } from '../tools/shared/truncation.js';
+import { buildCacheDebugFingerprint } from './cache-debug.js';
 import type {
   ToolAttachmentPolicy,
   ToolErrorVisibility,
@@ -269,7 +270,7 @@ function toUserContent(parts: ContextPart[]): UserContent {
   const content: Exclude<UserContent, string> = [];
 
   for (const part of parts) {
-    if (part.type === 'text') {
+    if (part.type === 'text' || part.type === 'runtime_context') {
       content.push({ text: part.text, type: 'text' });
     }
 
@@ -290,7 +291,7 @@ function toAssistantMessage(message: ContextMessage): ModelMessage[] {
   const assistantContent: Exclude<AssistantContent, string> = [];
 
   for (const part of message.parts) {
-    if (part.type === 'text') {
+    if (part.type === 'text' || part.type === 'runtime_context') {
       assistantContent.push({ text: part.text, type: 'text' });
     }
 
@@ -357,6 +358,16 @@ export function toAiSdkTurnRequest(input: {
 }): AiSdkTurnRequest {
   const model = input.context.lastUser.model;
   const system = input.context.system.map((block) => block.text).join('\n\n');
+  const messages = toAiSdkMessages(input.context);
+  const cacheDebug = {
+    request: buildCacheDebugFingerprint({
+      contextDebug: input.context.debug,
+      model,
+      messages,
+      system,
+      tools: input.tools
+    })
+  };
   const providerOptions =
     model.providerId === 'openai'
       ? {
@@ -368,7 +379,8 @@ export function toAiSdkTurnRequest(input: {
       : undefined;
 
   return {
-    messages: toAiSdkMessages(input.context),
+    cacheDebug,
+    messages,
     model: input.modelFactory(model),
     modelId: model.modelId,
     providerId: model.providerId,

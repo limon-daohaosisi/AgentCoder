@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ToolDefinition } from '../types.js';
 import { assertNonInteractiveCommand } from '../guards.js';
+import { assertBuildOnlyToolAllowed } from '../shared/mode-policy.js';
 import {
   resolveWorkspaceDirectory,
   toWorkspaceRelativePath
@@ -45,6 +46,7 @@ export const bashToolDefinition: ToolDefinition<
     text: { maxChars: 12_000, visibleToModel: true }
   },
   async buildApproval({ context, input }) {
+    assertBuildOnlyToolAllowed({ context, toolName: 'bash' });
     const workdir = await resolveWorkspaceDirectory(
       context.workspaceRoot,
       input.workdir
@@ -59,6 +61,7 @@ export const bashToolDefinition: ToolDefinition<
   },
   description: BASH_TOOL_PROMPT,
   async execute({ context, input }) {
+    assertBuildOnlyToolAllowed({ context, toolName: 'bash' });
     assertNonInteractiveCommand(input.command);
 
     const cwd = await resolveWorkspaceDirectory(

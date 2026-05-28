@@ -1,5 +1,6 @@
 import { streamText, type StreamTextResult, type ToolSet } from 'ai';
 import type { AiSdkTurnRequest } from './context/schema.js';
+import { dumpSentModelRequest } from './model-request-debug.js';
 
 export type ModelResponseStream = StreamTextResult<ToolSet, never>;
 
@@ -12,6 +13,8 @@ export function streamModelResponse(
   request: AiSdkTurnRequest,
   options: { signal?: AbortSignal } = {}
 ): ModelResponseStream {
+  dumpSentModelRequest(request);
+
   const usesOpenAiInstructions =
     request.providerId === 'openai' &&
     typeof request.providerOptions?.openai === 'object' &&

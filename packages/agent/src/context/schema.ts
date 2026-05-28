@@ -8,6 +8,7 @@ import type {
 import type { LanguageModel, ModelMessage, ToolSet } from 'ai';
 import type { z } from 'zod';
 import type { ToolOutputPolicy as AgentToolOutputPolicy } from '../tools/types.js';
+import type { CacheDebugInfo } from './cache-debug.js';
 
 export type MessageWithParts = MessageDto & {
   content: MessagePart[];
@@ -16,10 +17,10 @@ export type MessageWithParts = MessageDto & {
 export type ContextSystemBlock = {
   source:
     | 'core'
-    | 'environment'
     | 'format'
     | 'instruction'
     | 'memory'
+    | 'mode_rules'
     | 'skill_list'
     | 'user_system';
   text: string;
@@ -34,6 +35,18 @@ export type ContextLastUser = {
 
 export type ContextPart =
   | { sourcePartId: string; text: string; type: 'text' }
+  | {
+      kind:
+        | 'environment'
+        | 'mode_state'
+        | 'mode_transition'
+        | 'nested_agents_memory'
+        | 'plan_file';
+      metadata?: Record<string, unknown>;
+      sourcePartId: string;
+      text: string;
+      type: 'runtime_context';
+    }
   | {
       filename?: string;
       mime: string;
@@ -85,6 +98,18 @@ export type PromptMemorySource = {
   truncated?: boolean;
 };
 
+export type RuntimeContextSource = {
+  kind:
+    | 'environment'
+    | 'mode_state'
+    | 'mode_transition'
+    | 'nested_agents_memory'
+    | 'plan_file';
+  metadata?: Record<string, unknown>;
+  sourceId: string;
+  text: string;
+};
+
 export type PromptBundle = {
   debugSources: PromptSourceDebug[];
   systemBlocks: ContextSystemBlock[];
@@ -122,6 +147,10 @@ export type ResolvedToolPolicy = {
 export type ResolvedToolPolicyMap = Record<string, ResolvedToolPolicy>;
 
 export type AiSdkTurnRequest = {
+  cacheDebug?: CacheDebugInfo;
+  debugRequestKind?: 'compaction' | 'run_loop';
+  debugRunId?: string;
+  debugSessionId?: string;
   messages: ModelMessage[];
   model: LanguageModel;
   modelId: string;
