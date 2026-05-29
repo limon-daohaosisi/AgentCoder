@@ -190,6 +190,85 @@ test('RunLoop does not call model when session is waiting approval', async () =>
   assert.equal(called, false);
 });
 
+test('RunLoop forwards approval payload from tool executor pauses', async () => {
+  const session = createSessionWithUserMessage();
+  const loop = new RunLoop(
+    {
+      async processTurn() {
+        return {
+          assistantMessageId: 'assistant-1',
+          kind: 'tool_calls',
+          toolParts: [
+            {
+              createdAt: '2026-04-27T00:00:00.000Z',
+              id: 'part-tool-1',
+              messageId: 'assistant-1',
+              modelToolCallId: 'model-call-1',
+              order: 0,
+              sessionId: session.id,
+              state: {
+                input: { command: 'pwd' },
+                status: 'pending'
+              },
+              toolCallId: 'tool-call-1',
+              toolName: 'bash',
+              type: 'tool',
+              updatedAt: '2026-04-27T00:00:00.000Z'
+            }
+          ]
+        };
+      }
+    },
+    {
+      async executePendingToolParts() {
+        return {
+          approval: {
+            createdAt: '2026-04-27T00:00:00.000Z',
+            id: 'approval-1',
+            kind: 'bash',
+            payload: { command: 'pwd' },
+            runId: 'run-test',
+            sessionId: session.id,
+            status: 'pending',
+            toolCallId: 'tool-call-1'
+          },
+          checkpoint: {
+            approvalId: 'approval-1',
+            kind: 'waiting_approval',
+            messageId: 'assistant-1',
+            modelToolCallId: 'model-call-1',
+            partId: 'part-tool-1',
+            toolCallId: 'tool-call-1',
+            updatedAt: '2026-04-27T00:00:00.000Z'
+          },
+          kind: 'paused_for_approval' as const,
+          toolCall: {
+            createdAt: '2026-04-27T00:00:00.000Z',
+            id: 'tool-call-1',
+            input: { command: 'pwd' },
+            messageId: 'assistant-1',
+            messagePartId: 'part-tool-1',
+            modelToolCallId: 'model-call-1',
+            requiresApproval: true,
+            runId: 'run-test',
+            sessionId: session.id,
+            status: 'pending_approval',
+            toolName: 'bash',
+            updatedAt: '2026-04-27T00:00:00.000Z'
+          }
+        };
+      }
+    },
+    createDeps()
+  );
+
+  const result = await loop.run(createRunLoopInput(session.id));
+
+  assert.equal(result.kind, 'paused_for_approval');
+  assert.equal(result.approval?.id, 'approval-1');
+  assert.equal(result.toolCall?.id, 'tool-call-1');
+});
+
 test('RunLoop auto compacts and continues when context needs full compaction', async () => {
   const session = createSessionWithUserMessage();
   const run = createPersistedRun(session.id);

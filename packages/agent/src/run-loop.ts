@@ -227,8 +227,10 @@ export class RunLoop {
 
         if (toolResult.kind === 'paused_for_approval') {
           return {
+            approval: toolResult.approval,
             checkpoint: toolResult.checkpoint,
-            kind: 'paused_for_approval'
+            kind: 'paused_for_approval',
+            toolCall: toolResult.toolCall
           };
         }
 

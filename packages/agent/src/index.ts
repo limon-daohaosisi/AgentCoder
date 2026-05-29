@@ -88,6 +88,8 @@ export type * from './context/schema.js';
 export {
   applyPatchInputSchema,
   applyPatchToolDefinition,
+  batchInputSchema,
+  batchToolDefinition,
   bashInputSchema,
   bashToolDefinition,
   buildToolExecutionContext,
@@ -98,6 +100,7 @@ export {
   globToolDefinition,
   grepInputSchema,
   grepToolDefinition,
+  parseBatchChildToolCalls,
   readInputSchema,
   readToolDefinition,
   taskCreateInputSchema,

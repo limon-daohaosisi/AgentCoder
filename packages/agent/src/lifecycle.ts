@@ -73,7 +73,7 @@ export type LifecycleDeps = {
     input: MarkRunInput & { lastCheckpoint: string }
   ): AgentRunDto | null;
   pauseForApproval(input: PauseForApprovalInput): unknown;
-  toolExecutor: Pick<ToolExecutor, 'executeApprovedPart'>;
+  toolExecutor: Pick<ToolExecutor, 'continueBatch' | 'executeApprovedPart'>;
   updateSessionRuntimeState(
     input: UpdateSessionRuntimeStateInput
   ): SessionDto | null;
@@ -151,6 +151,32 @@ export class Lifecycle {
         sessionId: input.sessionId,
         workspaceRoot: this.deps.getWorkspaceRootPath(input.sessionId)
       });
+
+      if (input.part.batch) {
+        const batchResult = await this.deps.toolExecutor.continueBatch({
+          fromPartId: input.part.id,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          signal: input.signal,
+          workspaceRoot: this.deps.getWorkspaceRootPath(input.sessionId)
+        });
+
+        if (batchResult.kind === 'paused_for_approval') {
+          return this.handleResult(input.sessionId, input.runId, batchResult);
+        }
+
+        if (batchResult.kind === 'failed') {
+          return this.handleFailure(
+            input.sessionId,
+            input.runId,
+            new Error(batchResult.error)
+          );
+        }
+
+        if (batchResult.kind === 'cancelled') {
+          return this.handleResult(input.sessionId, input.runId, batchResult);
+        }
+      }
 
       const result = await this.loop.run({
         runId: input.runId,

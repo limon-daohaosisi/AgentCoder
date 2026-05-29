@@ -73,6 +73,7 @@ export const grepToolDefinition: ToolDefinition<
 > = {
   approval: 'never',
   description: GREP_TOOL_PROMPT,
+  isConcurrencySafe: () => true,
   outputPolicy: {
     attachments: { visibleToModel: false },
     errors: { visibleToModel: 'error_text_only' },

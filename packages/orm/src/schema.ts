@@ -74,7 +74,7 @@ export const artifacts = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -143,7 +143,7 @@ export const plans = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -208,7 +208,7 @@ export const workspaces = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -297,7 +297,7 @@ export const sessionEvents = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -388,7 +388,7 @@ export const messages = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -471,7 +471,7 @@ export const messageParts = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -550,7 +550,7 @@ export const agentRuns = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -629,7 +629,7 @@ export const tasks = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -707,7 +707,7 @@ export const sessions = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -793,7 +793,7 @@ export const approvals = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',
@@ -823,6 +823,7 @@ export const toolCalls = sqliteTable(
       onDelete: 'set null'
     }),
     modelToolCallId: text('model_tool_call_id'),
+    batchJson: text('batch_json'),
     providerMetadataJson: text('provider_metadata_json'),
     toolName: text('tool_name').notNull(),
     inputJson: text('input_json').notNull(),
@@ -885,7 +886,7 @@ export const toolCalls = sqliteTable(
     check('approvals_check_13', sql`decision_scope IN ('once', 'session_rule'`),
     check(
       'tool_calls_check_14',
-      sql`tool_name IN ('read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
+      sql`tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit'`
     ),
     check(
       'tool_calls_check_15',

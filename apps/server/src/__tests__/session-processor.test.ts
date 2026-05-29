@@ -880,3 +880,243 @@ test('SessionProcessor pauses for plan_exit approval with full plan payload', as
     /Ready for implementation/
   );
 });
+
+test('SessionProcessor expands batch into child tool parts with batch metadata', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                tool_calls: [
+                  { parameters: { filePath: 'src/index.ts' }, tool: 'read' },
+                  { parameters: { pattern: 'ok', path: 'src' }, tool: 'grep' }
+                ]
+              },
+              toolCallId: 'model-call-batch-1',
+              toolName: 'batch',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-batch',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          batch: {
+            approval: 'never',
+            enabled: true,
+            name: 'batch',
+            source: 'builtin'
+          },
+          grep: {
+            approval: 'never',
+            enabled: true,
+            name: 'grep',
+            source: 'builtin'
+          },
+          read: {
+            approval: 'never',
+            enabled: true,
+            name: 'read',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+  assert.equal(result.toolParts.length, 2);
+  assert.deepEqual(
+    result.toolParts.map((part) => ({
+      batchId: part.batch?.batchId,
+      batchIndex: part.batch?.batchIndex,
+      groupIndex: part.batch?.batchGroupIndex,
+      groupKind: part.batch?.batchGroupKind,
+      modelToolCallId: part.modelToolCallId,
+      toolName: part.toolName
+    })),
+    [
+      {
+        batchId: 'model-call-batch-1',
+        batchIndex: 0,
+        groupIndex: 0,
+        groupKind: 'parallel',
+        modelToolCallId: 'model-call-batch-1#0',
+        toolName: 'read'
+      },
+      {
+        batchId: 'model-call-batch-1',
+        batchIndex: 1,
+        groupIndex: 0,
+        groupKind: 'parallel',
+        modelToolCallId: 'model-call-batch-1#1',
+        toolName: 'grep'
+      }
+    ]
+  );
+});
+
+test('SessionProcessor rejects plan_exit inside batch', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                tool_calls: [
+                  { parameters: { summary: 'nope' }, tool: 'plan_exit' }
+                ]
+              },
+              toolCallId: 'model-call-batch-invalid',
+              toolName: 'batch',
+              type: 'tool-call'
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          batch: {
+            approval: 'never',
+            enabled: true,
+            name: 'batch',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.deepEqual(result, {
+    error: 'plan_exit is not allowed inside batch.',
+    kind: 'failed'
+  });
+});
+
+test('SessionProcessor keeps approval-required batch children pending until execution', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                tool_calls: [
+                  {
+                    parameters: {
+                      filePath: 'src/index.ts',
+                      oldString: 'export const ok = true;\n',
+                      newString: 'export const ok = false;\n'
+                    },
+                    tool: 'edit'
+                  },
+                  { parameters: { filePath: 'src/index.ts' }, tool: 'read' }
+                ]
+              },
+              toolCallId: 'model-call-batch-approval',
+              toolName: 'batch',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-batch-approval',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          batch: {
+            approval: 'never',
+            enabled: true,
+            name: 'batch',
+            source: 'builtin'
+          },
+          edit: {
+            approval: 'required',
+            enabled: true,
+            name: 'edit',
+            source: 'builtin'
+          },
+          read: {
+            approval: 'never',
+            enabled: true,
+            name: 'read',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+  const [editPart, readPart] = result.toolParts;
+  const editToolCall = editPart
+    ? toolCallRepository.getById(editPart.toolCallId)
+    : null;
+  const readToolCall = readPart
+    ? toolCallRepository.getById(readPart.toolCallId)
+    : null;
+
+  assert.equal(editPart?.state.status, 'pending');
+  assert.equal(editToolCall?.requiresApproval, true);
+  assert.equal(editToolCall?.status, 'pending');
+  assert.equal(editPart?.batch?.batchGroupKind, 'exclusive');
+  assert.equal(readPart?.batch?.batchGroupIndex, 1);
+  assert.equal(readToolCall?.status, 'pending');
+});

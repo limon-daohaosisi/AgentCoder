@@ -20,6 +20,7 @@ import type {
   AgentRunStatus,
   ApprovalDto,
   ApprovalStatus,
+  BatchChildRef,
   MessageDto,
   MessagePart,
   MessageRuntimeMetadata,
@@ -227,6 +228,7 @@ function mapMessagePartRow(row: MessagePartRow): MessagePart {
 
 function mapToolCallRow(row: ToolCallRow): ToolCallDto {
   return {
+    batch: mapNullableRecord(row.batchJson) as BatchChildRef | undefined,
     createdAt: row.createdAt,
     errorText: mapNullableString(row.errorText),
     id: row.id,

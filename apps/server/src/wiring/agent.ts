@@ -157,6 +157,8 @@ export const sessionProcessor = new SessionProcessor(
 export const toolExecutor = new ToolExecutor({
   appendSessionEvent: (event) => sessionEventService.append(event),
   getMessagePart: (partId) => messagePartService.getPart(partId),
+  listOpenToolPartsByRun: (runId) =>
+    toolStateService.listOpenToolPartsByRun(runId),
   persist: (callback) => Database.transaction(callback),
   services: buildToolServices(),
   updateToolPartWithToolCall: (input) =>

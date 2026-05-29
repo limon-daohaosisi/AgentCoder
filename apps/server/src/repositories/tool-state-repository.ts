@@ -1,6 +1,7 @@
 import { messageParts, toolCalls } from '@opencode/orm';
 import type { MessagePartRow, ToolCallRow } from '@opencode/orm';
 import type {
+  BatchChildRef,
   MessagePart,
   ToolCallDto,
   ToolCallStatus
@@ -15,6 +16,7 @@ type ToolPart = Extract<MessagePart, { type: 'tool' }>;
 type CreateToolStateInput = {
   part: ToolPart;
   toolCall: {
+    batch?: BatchChildRef;
     createdAt: string;
     id: string;
     input: Record<string, unknown>;
@@ -69,6 +71,7 @@ function mapMessagePartRow(row: MessagePartRow): MessagePart {
 
 function mapToolCallRow(row: ToolCallRow): ToolCallDto {
   return {
+    batch: mapNullableRecord(row.batchJson) as BatchChildRef | undefined,
     createdAt: row.createdAt,
     errorText: mapNullableString(row.errorText),
     id: row.id,
@@ -129,6 +132,9 @@ export const toolStateRepository = {
         const toolCallRow = db
           .insert(toolCalls)
           .values({
+            batchJson: input.toolCall.batch
+              ? stringifyJsonValue(input.toolCall.batch)
+              : null,
             completedAt: null,
             createdAt: input.toolCall.createdAt,
             errorText: null,

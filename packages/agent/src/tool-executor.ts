@@ -1,9 +1,11 @@
-import {
-  type MessagePart,
-  type SessionCheckpoint,
-  type SessionEvent,
-  type ToolCallDto,
-  type ToolName
+import { randomUUID } from 'node:crypto';
+import type {
+  ApprovalDto,
+  MessagePart,
+  SessionCheckpoint,
+  SessionEvent,
+  ToolCallDto,
+  ToolName
 } from '@opencode/shared';
 import { buildSessionCheckpoint } from './checkpoint.js';
 import {
@@ -46,9 +48,24 @@ type ApprovalResult = {
   payload: Record<string, unknown>;
 };
 
+type ApprovalPauseResult = {
+  approval: ApprovalDto;
+  checkpoint: SessionCheckpoint;
+  kind: 'paused_for_approval';
+  toolCall: ToolCallDto;
+};
+
 type AutoExecutionResult = {
   kind: 'auto';
   presentation: ToolPresentation;
+};
+
+type ToolPart = Extract<MessagePart, { type: 'tool' }>;
+
+type BatchExecutionGroup = {
+  kind: 'exclusive' | 'parallel';
+  parts: ToolPart[];
+  remainingParts: ToolPart[];
 };
 
 export type ToolPreparationResult = ApprovalResult | AutoExecutionResult;
@@ -157,7 +174,6 @@ export async function executeApprovedTool(input: {
   }
 
   const definition = getToolDefinition(input.toolName);
-
   const parsedInput = definition.inputSchema.parse(input.rawInput);
   const context = await buildToolExecutionContext({
     now: input.now,
@@ -189,11 +205,12 @@ export async function executeApprovedTool(input: {
 export type ToolExecutorDeps = {
   appendSessionEvent(event: SessionEvent): unknown;
   getMessagePart(partId: string): MessagePart | null;
+  listOpenToolPartsByRun?(runId: string): ToolPart[];
   now?: () => string;
   persist?<T>(callback: () => T): T;
   services?: ToolServices;
   updateToolPartWithToolCall(input: {
-    part: Extract<MessagePart, { type: 'tool' }>;
+    part: ToolPart;
     toolCall: {
       completedAt?: null | string;
       errorText?: null | string;
@@ -204,19 +221,14 @@ export type ToolExecutorDeps = {
       updatedAt?: string;
     };
   }): {
-    part: Extract<MessagePart, { type: 'tool' }>;
+    part: ToolPart;
     toolCall: ToolCallDto;
   };
 };
 
 export type ToolExecutorResult =
   | { executedPartIds: string[]; kind: 'completed' }
-  | {
-      approval?: Record<string, unknown>;
-      checkpoint: SessionCheckpoint;
-      kind: 'paused_for_approval';
-      toolCall?: ToolCallDto;
-    }
+  | ApprovalPauseResult
   | { kind: 'cancelled'; reason: string }
   | { error: string; kind: 'failed' };
 
@@ -224,7 +236,7 @@ export class ToolExecutor {
   constructor(private readonly deps: ToolExecutorDeps) {}
 
   private appendPartUpdatedEvent(input: {
-    part: Extract<MessagePart, { type: 'tool' }>;
+    part: ToolPart;
     runId?: string;
     sessionId: string;
   }) {
@@ -238,23 +250,40 @@ export class ToolExecutor {
   }
 
   async executePendingToolParts(input: {
-    parts: Extract<MessagePart, { type: 'tool' }>[];
+    parts: ToolPart[];
     runId: string;
     signal: AbortSignal;
     sessionId: string;
     workspaceRoot: string;
   }): Promise<ToolExecutorResult> {
     const executedPartIds: string[] = [];
+    const sortedParts = [...input.parts].sort((left, right) =>
+      left.order === right.order
+        ? left.id.localeCompare(right.id)
+        : left.order - right.order
+    );
+    const standaloneParts = sortedParts.filter((part) => !part.batch);
+    const batchPartsById = new Map<string, ToolPart[]>();
 
-    for (const part of input.parts) {
+    for (const part of sortedParts) {
+      if (!part.batch) {
+        continue;
+      }
+
+      const grouped = batchPartsById.get(part.batch.batchId) ?? [];
+      grouped.push(part);
+      batchPartsById.set(part.batch.batchId, grouped);
+    }
+
+    for (const part of standaloneParts) {
+      if (part.state.status !== 'pending') {
+        continue;
+      }
+
       const abortReason = getAbortReason(input.signal);
 
       if (abortReason) {
         return { kind: 'cancelled', reason: abortReason };
-      }
-
-      if (part.state.status !== 'pending') {
-        continue;
       }
 
       const approvalMode = await resolveToolApprovalMode({
@@ -264,31 +293,46 @@ export class ToolExecutor {
         sessionId: input.sessionId,
         signal: input.signal,
         toolCallId: part.toolCallId,
-        toolName: part.toolName as ToolName,
+        toolName: part.toolName,
         workspaceRoot: input.workspaceRoot
       });
 
       if (approvalMode === 'required') {
-        const checkpoint = buildSessionCheckpoint({
-          kind: 'waiting_approval',
-          messageId: part.messageId,
-          modelToolCallId: part.modelToolCallId,
-          partId: part.id,
-          taskId: undefined,
-          toolCallId: part.toolCallId
+        return this.pauseForApprovalPart({
+          part,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          workspaceRoot: input.workspaceRoot
         });
-
-        return { checkpoint, kind: 'paused_for_approval' };
       }
 
-      await this.executePart({
+      const completed = await this.executePart({
         part,
         runId: input.runId,
         signal: input.signal,
         sessionId: input.sessionId,
         workspaceRoot: input.workspaceRoot
       });
-      executedPartIds.push(part.id);
+
+      executedPartIds.push(completed.id);
+    }
+
+    for (const [batchId, batchParts] of batchPartsById) {
+      const result = await this.executeBatch({
+        batchId,
+        parts: batchParts,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        signal: input.signal,
+        workspaceRoot: input.workspaceRoot
+      });
+
+      if (result.kind === 'completed') {
+        executedPartIds.push(...result.executedPartIds);
+        continue;
+      }
+
+      return result;
     }
 
     return { executedPartIds, kind: 'completed' };
@@ -297,7 +341,7 @@ export class ToolExecutor {
   async executeApprovedPart(input: {
     approvalPayload?: Record<string, unknown>;
     decision: 'approved' | 'rejected';
-    part: Extract<MessagePart, { type: 'tool' }>;
+    part: ToolPart;
     runId: string;
     signal?: AbortSignal;
     sessionId: string;
@@ -309,13 +353,14 @@ export class ToolExecutor {
 
     if (input.decision === 'rejected') {
       const completedAt = this.now();
-      const rejectedPart: Extract<MessagePart, { type: 'tool' }> = {
+      const payload = { ok: false, rejected: true };
+      const rejectedPart: ToolPart = {
         ...input.part,
         state: {
           completedAt,
           errorText: 'Approval rejected by user',
           input: input.part.state.input,
-          payload: { ok: false, rejected: true },
+          payload,
           reason: 'execution_denied',
           status: 'error'
         }
@@ -328,7 +373,7 @@ export class ToolExecutor {
             completedAt,
             errorText: 'Approval rejected by user',
             id: input.part.toolCallId,
-            result: { ok: false, rejected: true },
+            result: payload,
             status: 'failed',
             updatedAt: completedAt
           }
@@ -346,15 +391,54 @@ export class ToolExecutor {
           type: 'tool.failed'
         });
       });
+
       return rejectedPart;
     }
 
     return this.executePart(input);
   }
 
+  async continueBatch(input: {
+    fromPartId: string;
+    runId: string;
+    sessionId: string;
+    signal: AbortSignal;
+    workspaceRoot: string;
+  }): Promise<ToolExecutorResult> {
+    const anchor = this.deps.getMessagePart(input.fromPartId);
+
+    if (!anchor || anchor.type !== 'tool' || !anchor.batch) {
+      return { executedPartIds: [], kind: 'completed' };
+    }
+
+    const batchParts =
+      this.deps
+        .listOpenToolPartsByRun?.(input.runId)
+        .filter((part) => part.batch?.batchId === anchor.batch!.batchId)
+        .filter(
+          (part) =>
+            part.batch &&
+            part.batch.batchIndex > anchor.batch!.batchIndex &&
+            part.state.status === 'pending'
+        ) ?? [];
+
+    if (batchParts.length === 0) {
+      return { executedPartIds: [], kind: 'completed' };
+    }
+
+    return this.executeBatch({
+      batchId: anchor.batch.batchId,
+      parts: batchParts,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      signal: input.signal,
+      workspaceRoot: input.workspaceRoot
+    });
+  }
+
   private async executePart(input: {
     approvalPayload?: Record<string, unknown>;
-    part: Extract<MessagePart, { type: 'tool' }>;
+    part: ToolPart;
     runId: string;
     signal?: AbortSignal;
     sessionId: string;
@@ -367,7 +451,7 @@ export class ToolExecutor {
     }
 
     const startedAt = this.now();
-    const runningPart: Extract<MessagePart, { type: 'tool' }> = {
+    const runningPart: ToolPart = {
       ...input.part,
       state: {
         input: input.part.state.input,
@@ -411,7 +495,7 @@ export class ToolExecutor {
         sessionId: input.sessionId,
         signal: input.signal,
         toolCallId: input.part.toolCallId,
-        toolName: input.part.toolName as ToolName,
+        toolName: input.part.toolName,
         workspaceRoot: input.workspaceRoot
       });
       const presentation =
@@ -424,7 +508,7 @@ export class ToolExecutor {
               sessionId: input.sessionId,
               signal: input.signal,
               toolCallId: input.part.toolCallId,
-              toolName: input.part.toolName as ToolName,
+              toolName: input.part.toolName,
               workspaceRoot: input.workspaceRoot
             })
           : await (async () => {
@@ -435,7 +519,7 @@ export class ToolExecutor {
                 sessionId: input.sessionId,
                 signal: input.signal,
                 toolCallId: input.part.toolCallId,
-                toolName: input.part.toolName as ToolName,
+                toolName: input.part.toolName,
                 workspaceRoot: input.workspaceRoot
               });
 
@@ -448,7 +532,7 @@ export class ToolExecutor {
               return prepared.presentation;
             })();
       const completedAt = this.now();
-      const completedPart: Extract<MessagePart, { type: 'tool' }> = {
+      const completedPart: ToolPart = {
         ...runningPart,
         state: {
           attachments: presentation.attachments,
@@ -495,7 +579,7 @@ export class ToolExecutor {
       const errorText = formatError(error);
       const completedAt = this.now();
       const payload = { error: errorText, ok: false };
-      const failedPart: Extract<MessagePart, { type: 'tool' }> = {
+      const failedPart: ToolPart = {
         ...runningPart,
         state: {
           completedAt,
@@ -536,6 +620,308 @@ export class ToolExecutor {
       });
 
       return failedPart;
+    }
+  }
+
+  private async pauseForApprovalPart(input: {
+    part: ToolPart;
+    runId: string;
+    sessionId: string;
+    workspaceRoot: string;
+  }): Promise<ApprovalPauseResult | { error: string; kind: 'failed' }> {
+    let approvalPayload: ToolPreparationResult;
+
+    try {
+      approvalPayload = await prepareToolExecution({
+        now: this.deps.now,
+        rawInput: input.part.state.input,
+        services: this.deps.services,
+        sessionId: input.sessionId,
+        toolCallId: input.part.toolCallId,
+        toolName: input.part.toolName,
+        workspaceRoot: input.workspaceRoot
+      });
+    } catch (error) {
+      const errorText = formatError(error);
+      const completedAt = this.now();
+      const payload = { error: errorText, ok: false };
+      const failedPart: ToolPart = {
+        ...input.part,
+        state: {
+          completedAt,
+          errorText,
+          input: input.part.state.input,
+          payload,
+          reason: 'tool_error',
+          status: 'error'
+        }
+      };
+
+      this.persist(() => {
+        const { part: updatedPart } = this.deps.updateToolPartWithToolCall({
+          part: failedPart,
+          toolCall: {
+            completedAt,
+            errorText,
+            id: input.part.toolCallId,
+            result: payload,
+            status: 'failed',
+            updatedAt: completedAt
+          }
+        });
+        this.appendPartUpdatedEvent({
+          part: updatedPart,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
+        this.deps.appendSessionEvent({
+          error: errorText,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          toolCallId: input.part.toolCallId,
+          type: 'tool.failed'
+        });
+      });
+
+      return { error: errorText, kind: 'failed' };
+    }
+
+    if (approvalPayload.kind !== 'approval') {
+      return {
+        error: `Expected approval payload for tool ${input.part.toolName}.`,
+        kind: 'failed'
+      };
+    }
+
+    const now = this.now();
+    const { toolCall } = this.persist(() =>
+      this.deps.updateToolPartWithToolCall({
+        part: input.part,
+        toolCall: {
+          id: input.part.toolCallId,
+          status: 'pending_approval',
+          updatedAt: now
+        }
+      })
+    );
+    const approval: ApprovalDto = {
+      createdAt: now,
+      id: randomUUID(),
+      kind: input.part.toolName as ApprovalDto['kind'],
+      payload: approvalPayload.payload,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      status: 'pending',
+      taskId: toolCall.taskId,
+      toolCallId: input.part.toolCallId
+    };
+    const checkpoint = buildSessionCheckpoint({
+      approvalId: approval.id,
+      kind: 'waiting_approval',
+      messageId: input.part.messageId,
+      modelToolCallId: input.part.modelToolCallId,
+      partId: input.part.id,
+      taskId: toolCall.taskId,
+      toolCallId: input.part.toolCallId
+    });
+
+    return {
+      approval,
+      checkpoint,
+      kind: 'paused_for_approval',
+      toolCall
+    };
+  }
+
+  private async executeBatch(input: {
+    batchId: string;
+    parts: ToolPart[];
+    runId: string;
+    sessionId: string;
+    signal: AbortSignal;
+    workspaceRoot: string;
+  }): Promise<ToolExecutorResult> {
+    const executedPartIds: string[] = [];
+    const groups = this.buildBatchExecutionPlan(input.parts);
+
+    for (const group of groups) {
+      const abortReason = getAbortReason(input.signal);
+
+      if (abortReason) {
+        this.failPendingBatchChildren(group.remainingParts, abortReason, input);
+        return { kind: 'cancelled', reason: abortReason };
+      }
+
+      if (group.kind === 'parallel') {
+        const settled = await Promise.all(
+          group.parts.map((part) =>
+            this.executePart({
+              part,
+              runId: input.runId,
+              signal: input.signal,
+              sessionId: input.sessionId,
+              workspaceRoot: input.workspaceRoot
+            })
+          )
+        );
+        const failed = settled.find((part) => part.state.status === 'error');
+
+        executedPartIds.push(...settled.map((part) => part.id));
+
+        if (failed?.state.status === 'error') {
+          this.failPendingBatchChildren(
+            group.remainingParts,
+            failed.state.errorText,
+            input
+          );
+          return { executedPartIds, kind: 'completed' };
+        }
+
+        continue;
+      }
+
+      const [part] = group.parts;
+
+      if (!part) {
+        continue;
+      }
+
+      const approvalMode = await resolveToolApprovalMode({
+        now: this.deps.now,
+        rawInput: part.state.input,
+        services: this.deps.services,
+        sessionId: input.sessionId,
+        signal: input.signal,
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        workspaceRoot: input.workspaceRoot
+      });
+
+      if (approvalMode === 'required') {
+        const paused = await this.pauseForApprovalPart({
+          part,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          workspaceRoot: input.workspaceRoot
+        });
+
+        if (paused.kind === 'failed') {
+          this.failPendingBatchChildren(
+            group.remainingParts,
+            paused.error,
+            input
+          );
+          return { executedPartIds, kind: 'completed' };
+        }
+
+        return paused;
+      }
+
+      const completed = await this.executePart({
+        part,
+        runId: input.runId,
+        signal: input.signal,
+        sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot
+      });
+
+      executedPartIds.push(completed.id);
+
+      if (completed.state.status === 'error') {
+        this.failPendingBatchChildren(
+          group.remainingParts,
+          completed.state.errorText,
+          input
+        );
+        return { executedPartIds, kind: 'completed' };
+      }
+    }
+
+    return { executedPartIds, kind: 'completed' };
+  }
+
+  private buildBatchExecutionPlan(parts: ToolPart[]): BatchExecutionGroup[] {
+    const ordered = [...parts]
+      .filter((part) => part.state.status === 'pending')
+      .sort((left, right) => {
+        const leftIndex = left.batch?.batchIndex ?? left.order;
+        const rightIndex = right.batch?.batchIndex ?? right.order;
+        return leftIndex === rightIndex
+          ? left.id.localeCompare(right.id)
+          : leftIndex - rightIndex;
+      });
+    const groups: BatchExecutionGroup[] = [];
+
+    for (let index = 0; index < ordered.length; index += 1) {
+      const part = ordered[index]!;
+      const kind = part.batch?.batchGroupKind ?? 'exclusive';
+      const current = groups.at(-1);
+
+      if (!current || kind !== 'parallel' || current.kind !== 'parallel') {
+        groups.push({
+          kind,
+          parts: [part],
+          remainingParts: ordered.slice(index + 1)
+        });
+        continue;
+      }
+
+      current.parts.push(part);
+      current.remainingParts = ordered.slice(index + 1);
+    }
+
+    return groups;
+  }
+
+  private failPendingBatchChildren(
+    parts: ToolPart[],
+    errorText: string,
+    input: { runId: string; sessionId: string }
+  ) {
+    for (const part of parts) {
+      if (part.state.status !== 'pending') {
+        continue;
+      }
+
+      const completedAt = this.now();
+      const payload = { error: errorText, ok: false };
+      const failedPart: ToolPart = {
+        ...part,
+        state: {
+          completedAt,
+          errorText,
+          input: part.state.input,
+          payload,
+          reason: 'interrupted',
+          status: 'error'
+        }
+      };
+
+      this.persist(() => {
+        const { part: updatedPart } = this.deps.updateToolPartWithToolCall({
+          part: failedPart,
+          toolCall: {
+            completedAt,
+            errorText,
+            id: part.toolCallId,
+            result: payload,
+            status: 'failed',
+            updatedAt: completedAt
+          }
+        });
+        this.appendPartUpdatedEvent({
+          part: updatedPart,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
+        this.deps.appendSessionEvent({
+          error: errorText,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          toolCallId: part.toolCallId,
+          type: 'tool.failed'
+        });
+      });
     }
   }
 

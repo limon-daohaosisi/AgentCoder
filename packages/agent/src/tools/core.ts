@@ -166,6 +166,7 @@ export type ToolDefinition<
     context: ToolExecutionContext;
     input: z.infer<TInputSchema>;
   }): Promise<TOutput>;
+  isConcurrencySafe?(input: z.infer<TInputSchema>): boolean;
   inputSchema: TInputSchema;
   name: ToolName;
   outputPolicy?: ToolOutputPolicy;
