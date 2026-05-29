@@ -24,6 +24,7 @@ export type TaskStatus =
   | 'failed';
 
 export type ToolName =
+  | 'batch'
   | 'apply_patch'
   | 'bash'
   | 'edit'
@@ -42,6 +43,17 @@ export type ApprovalKind = Extract<
   ToolName,
   'apply_patch' | 'bash' | 'edit' | 'plan_exit' | 'write'
 >;
+
+export type BatchGroupKind = 'exclusive' | 'parallel';
+
+export type BatchChildRef = {
+  batchGroupIndex: number;
+  batchGroupKind: BatchGroupKind;
+  batchId: string;
+  batchIndex: number;
+  outerModelToolCallId: string;
+  outerToolName: 'batch';
+};
 
 export type PlanExitApprovalPayload = {
   planContent: string;
@@ -152,6 +164,7 @@ export type MessagePart =
       type: 'reasoning';
     })
   | (PartBase & {
+      batch?: BatchChildRef;
       modelToolCallId: string;
       providerMetadata?: Record<string, unknown>;
       state: ToolState;
@@ -449,6 +462,7 @@ export type CancelRunResponse = {
 };
 
 export type ToolCallDto = {
+  batch?: BatchChildRef;
   createdAt: string;
   errorText?: string;
   id: string;

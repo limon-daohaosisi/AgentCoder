@@ -1,9 +1,11 @@
 import type {
+  BatchChildRef,
   MessagePart,
   ToolCallDto,
   ToolCallStatus
 } from '@opencode/shared';
 import { ServiceError } from '../../lib/service-error.js';
+import { messagePartRepository } from '../../repositories/message-part-repository.js';
 import { toolStateRepository } from '../../repositories/tool-state-repository.js';
 
 type ToolPart = Extract<MessagePart, { type: 'tool' }>;
@@ -24,6 +26,7 @@ type UpdateToolPartWithToolCallInput = {
 type CreateToolPartWithToolCallInput = {
   part: ToolPart;
   toolCall: {
+    batch?: BatchChildRef;
     createdAt: string;
     id: string;
     input: Record<string, unknown>;
@@ -166,5 +169,9 @@ export const toolStateService = {
         updatedAt
       }
     });
+  },
+
+  listOpenToolPartsByRun(runId: string) {
+    return messagePartRepository.listOpenToolPartsByRun(runId);
   }
 };

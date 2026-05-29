@@ -182,6 +182,145 @@ function createWaitingApprovalFixture() {
   return { approval, checkpoint, createdTool, run, session, toolPart };
 }
 
+function createBatchWaitingApprovalFixture() {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const assistantMessage = messageService.createMessage({
+    content: [],
+    createdAt: now,
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+  const batchRef = {
+    batchGroupIndex: 0 as const,
+    batchGroupKind: 'exclusive' as const,
+    batchId: `batch-${run.id}`,
+    batchIndex: 0,
+    outerModelToolCallId: `batch-model-${run.id}`,
+    outerToolName: 'batch' as const
+  };
+  const approvalToolPart: Extract<MessagePart, { type: 'tool' }> = {
+    batch: batchRef,
+    createdAt: now,
+    id: `batch-approval-part-${run.id}`,
+    messageId: assistantMessage.id,
+    modelToolCallId: `${batchRef.outerModelToolCallId}#0`,
+    order: 0,
+    sessionId: session.id,
+    state: {
+      input: { command: 'pwd' },
+      status: 'pending'
+    },
+    toolCallId: `batch-approval-tool-${run.id}`,
+    toolName: 'bash',
+    type: 'tool',
+    updatedAt: now
+  };
+  const pendingToolPart: Extract<MessagePart, { type: 'tool' }> = {
+    batch: {
+      ...batchRef,
+      batchGroupIndex: 1,
+      batchGroupKind: 'parallel',
+      batchIndex: 1
+    },
+    createdAt: now,
+    id: `batch-pending-part-${run.id}`,
+    messageId: assistantMessage.id,
+    modelToolCallId: `${batchRef.outerModelToolCallId}#1`,
+    order: 1,
+    sessionId: session.id,
+    state: {
+      input: { filePath: 'src/index.ts' },
+      status: 'pending'
+    },
+    toolCallId: `batch-pending-tool-${run.id}`,
+    toolName: 'read',
+    type: 'tool',
+    updatedAt: now
+  };
+  const createdApprovalTool = partService.createToolPartWithToolCall({
+    part: approvalToolPart,
+    toolCall: {
+      batch: batchRef,
+      createdAt: now,
+      id: approvalToolPart.toolCallId,
+      input: approvalToolPart.state.input,
+      messageId: approvalToolPart.messageId,
+      messagePartId: approvalToolPart.id,
+      modelToolCallId: approvalToolPart.modelToolCallId,
+      requiresApproval: true,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'pending_approval',
+      taskId: null,
+      toolName: 'bash',
+      updatedAt: now
+    }
+  });
+  const createdPendingTool = partService.createToolPartWithToolCall({
+    part: pendingToolPart,
+    toolCall: {
+      batch: pendingToolPart.batch,
+      createdAt: now,
+      id: pendingToolPart.toolCallId,
+      input: pendingToolPart.state.input,
+      messageId: pendingToolPart.messageId,
+      messagePartId: pendingToolPart.id,
+      modelToolCallId: pendingToolPart.modelToolCallId,
+      requiresApproval: false,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'pending',
+      taskId: null,
+      toolName: 'read',
+      updatedAt: now
+    }
+  });
+  const approval = approvalRepository.create({
+    createdAt: now,
+    decisionReasonText: null,
+    decidedAt: null,
+    decidedBy: null,
+    decisionScope: 'once',
+    id: `batch-approval-${run.id}`,
+    kind: 'bash',
+    payload: {},
+    runId: run.id,
+    sessionId: session.id,
+    status: 'pending',
+    suggestedRuleJson: null,
+    taskId: null,
+    toolCallId: createdApprovalTool.toolCall.id
+  });
+  const checkpoint = buildSessionCheckpoint({
+    approvalId: approval.id,
+    kind: 'waiting_approval',
+    messageId: assistantMessage.id,
+    modelToolCallId: approvalToolPart.modelToolCallId,
+    partId: approvalToolPart.id,
+    toolCallId: approvalToolPart.toolCallId,
+    updatedAt: now
+  });
+
+  agentRunService.markWaitingApproval({ checkpoint, runId: run.id });
+  sessionService.updateSessionRuntimeState({
+    lastCheckpoint: checkpoint,
+    sessionId: session.id,
+    status: 'waiting_approval'
+  });
+
+  return {
+    approval,
+    approvalToolPart,
+    createdApprovalTool,
+    createdPendingTool,
+    run,
+    session
+  };
+}
+
 test('startup recovery keeps valid waiting approval sessions resumable', () => {
   const { approval, createdTool, run, session, toolPart } =
     createWaitingApprovalFixture();
@@ -213,6 +352,47 @@ test('startup recovery keeps valid waiting approval sessions resumable', () => {
       .listAfterSequence(session.id, 0)
       .map((envelope) => envelope.event.type),
     ['session.recovered', 'session.updated']
+  );
+});
+
+test('startup recovery does not keep batch waiting approvals resumable', () => {
+  const {
+    approval,
+    approvalToolPart,
+    createdApprovalTool,
+    createdPendingTool,
+    run,
+    session
+  } = createBatchWaitingApprovalFixture();
+
+  const report = sessionRecoveryService.recoverInterruptedSessionsOnStartup();
+
+  assert.equal(report.waitingApprovalsKept, 0);
+  assert.equal(report.interruptedRuns, 1);
+  assert.equal(report.blockedRuns, 1);
+  assert.equal(sessionService.getSession(session.id)?.status, 'idle');
+  assert.equal(agentRunRepository.getById(run.id)?.status, 'blocked');
+  assert.equal(approvalRepository.getById(approval.id)?.status, 'rejected');
+  assert.equal(
+    toolCallRepository.getById(createdApprovalTool.toolCall.id)?.status,
+    'failed'
+  );
+  assert.equal(
+    toolCallRepository.getById(createdPendingTool.toolCall.id)?.status,
+    'failed'
+  );
+  const recoveredApprovalPart = messagePartRepository.getById(
+    approvalToolPart.id
+  );
+  assert.equal(
+    recoveredApprovalPart?.type === 'tool'
+      ? recoveredApprovalPart.state.status
+      : undefined,
+    'error'
+  );
+  assert.match(
+    sessionService.getSession(session.id)?.lastErrorText ?? '',
+    /batch_waiting_approval_not_resumable/u
   );
 });
 

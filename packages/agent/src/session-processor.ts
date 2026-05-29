@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   ApprovalDto,
+  BatchChildRef,
   CreateMessagePartInput,
   MessageDto,
   MessagePart,
@@ -13,6 +14,11 @@ import type { FinishReason, LanguageModelUsage, TextStreamPart } from 'ai';
 import { buildSessionCheckpoint } from './checkpoint.js';
 import type { AiSdkTurnRequest } from './context/schema.js';
 import type { StreamModelResponse } from './model-client.js';
+import {
+  batchInputSchema,
+  parseBatchChildToolCalls
+} from './tools/batch/index.js';
+import { toolByName } from './tools/index.js';
 import {
   prepareToolExecution,
   resolveToolApprovalMode
@@ -34,6 +40,14 @@ type CreateApprovalInput = {
   suggestedRuleJson: null | string;
   taskId: null | string;
   toolCallId: string;
+};
+
+type BatchGroupKind = 'exclusive' | 'parallel';
+
+type BatchPlanItem = {
+  index: number;
+  input: Record<string, unknown>;
+  toolName: ToolName;
 };
 
 type CreateMessagePartWithRunInput = CreateMessagePartInput & {
@@ -76,6 +90,7 @@ export type SessionProcessorDeps = {
   createToolPartWithToolCall(input: {
     part: Extract<MessagePart, { type: 'tool' }>;
     toolCall: {
+      batch?: BatchChildRef;
       createdAt: string;
       id: string;
       input: Record<string, unknown>;
@@ -371,6 +386,10 @@ export class SessionProcessor {
     }
 
     const approvalParts = state.toolParts.filter((part) => {
+      if (part.batch) {
+        return false;
+      }
+
       const toolCall = state.toolCalls.get(part.id);
       return toolCall?.requiresApproval === true;
     });
@@ -625,6 +644,10 @@ export class SessionProcessor {
       };
     }
 
+    if (event.toolName === 'batch') {
+      return this.persistBatchToolCall(input, state, event);
+    }
+
     const message = await this.ensureAssistantMessage(
       input.sessionId,
       input.runId,
@@ -700,6 +723,136 @@ export class SessionProcessor {
 
     state.toolParts.push(createdPart);
     state.toolCalls.set(createdPart.id, toolCall);
+
+    return { kind: 'ok' };
+  }
+
+  private async persistBatchToolCall(
+    input: ProcessTurnInput,
+    state: AssistantMessageState,
+    event: Extract<
+      TextStreamPart<AiSdkTurnRequest['tools']>,
+      { type: 'tool-call' }
+    >
+  ): Promise<{ kind: 'ok' } | { error: string; kind: 'failed' }> {
+    const policy = input.request.toolPolicies.batch;
+
+    if (!policy?.enabled) {
+      return {
+        error: 'Tool is not enabled: batch',
+        kind: 'failed'
+      };
+    }
+
+    const message = await this.ensureAssistantMessage(
+      input.sessionId,
+      input.runId,
+      state,
+      input
+    );
+    const now = this.now();
+    const currentTaskId = this.deps.getCurrentTaskContext?.(
+      input.sessionId
+    )?.currentTaskId;
+
+    let children: BatchPlanItem[];
+
+    try {
+      children = this.parseBatchPlan(event.input as Record<string, unknown>);
+    } catch (error) {
+      return {
+        error: formatError(error),
+        kind: 'failed'
+      };
+    }
+
+    const batchId = event.toolCallId;
+    const batchPlan = this.buildBatchGroupPlan(children);
+
+    const createdChildren = await Promise.all(
+      children.map(async (child) => {
+        const toolCallId = this.createId();
+        const partId = this.createId();
+        const childModelToolCallId = `${event.toolCallId}#${child.index}`;
+        const plan = batchPlan.get(child.index);
+
+        if (!plan) {
+          throw new Error(`Missing batch group plan for child ${child.index}.`);
+        }
+
+        const batch: BatchChildRef = {
+          batchGroupIndex: plan.groupIndex,
+          batchGroupKind: plan.groupKind,
+          batchId,
+          batchIndex: child.index,
+          outerModelToolCallId: event.toolCallId!,
+          outerToolName: 'batch'
+        };
+        const toolPart: Extract<MessagePart, { type: 'tool' }> = {
+          batch,
+          createdAt: now,
+          id: partId,
+          messageId: message.id,
+          modelToolCallId: childModelToolCallId,
+          order: state.nextOrder++,
+          providerMetadata: event.providerMetadata as
+            | Record<string, unknown>
+            | undefined,
+          sessionId: input.sessionId,
+          state: {
+            input: child.input,
+            rawInput: state.toolInputBuffers.get(event.toolCallId),
+            status: 'pending'
+          },
+          toolCallId,
+          toolName: child.toolName,
+          type: 'tool',
+          updatedAt: now
+        };
+
+        return {
+          batch,
+          requiresApproval: toolByName[child.toolName]?.approval === 'required',
+          toolPart
+        };
+      })
+    );
+
+    this.persist(() => {
+      for (const child of createdChildren) {
+        const { part: createdPart, toolCall } =
+          this.deps.createToolPartWithToolCall({
+            part: child.toolPart,
+            toolCall: {
+              batch: child.batch,
+              createdAt: now,
+              id: child.toolPart.toolCallId,
+              input: child.toolPart.state.input,
+              messageId: message.id,
+              messagePartId: child.toolPart.id,
+              modelToolCallId: child.toolPart.modelToolCallId,
+              providerMetadata: child.toolPart.providerMetadata,
+              requiresApproval: child.requiresApproval,
+              runId: input.runId,
+              sessionId: input.sessionId,
+              status: 'pending',
+              taskId: currentTaskId ?? null,
+              toolName: child.toolPart.toolName,
+              updatedAt: now
+            }
+          });
+
+        this.appendPartCreatedEvent({
+          messageId: message.id,
+          part: createdPart,
+          runId: input.runId,
+          sessionId: input.sessionId
+        });
+
+        state.toolParts.push(createdPart);
+        state.toolCalls.set(createdPart.id, toolCall);
+      }
+    });
 
     return { kind: 'ok' };
   }
@@ -1001,6 +1154,73 @@ export class SessionProcessor {
 
   private now() {
     return this.deps.now?.() ?? new Date().toISOString();
+  }
+
+  private parseBatchPlan(rawInput: Record<string, unknown>): BatchPlanItem[] {
+    const parsed = parseBatchChildToolCalls(batchInputSchema.parse(rawInput));
+    return parsed.map((child, index) => {
+      if (!toolByName[child.tool]) {
+        throw new Error(`Unsupported batch child tool: ${child.tool}`);
+      }
+
+      if (child.tool === 'batch') {
+        throw new Error('Nested batch is not supported.');
+      }
+
+      if (child.tool === 'plan_exit') {
+        throw new Error('plan_exit is not allowed inside batch.');
+      }
+
+      return {
+        index,
+        input: child.parameters,
+        toolName: child.tool
+      };
+    });
+  }
+
+  private buildBatchGroupPlan(children: BatchPlanItem[]) {
+    const plan = new Map<
+      number,
+      {
+        groupIndex: number;
+        groupKind: BatchGroupKind;
+      }
+    >();
+    let groupIndex = -1;
+    let previousKind: BatchGroupKind | null = null;
+
+    for (const child of children) {
+      const groupKind = this.getBatchGroupKind(child.toolName, child.input);
+
+      if (
+        previousKind === null ||
+        groupKind !== 'parallel' ||
+        previousKind !== 'parallel'
+      ) {
+        groupIndex += 1;
+      }
+
+      plan.set(child.index, {
+        groupIndex,
+        groupKind
+      });
+      previousKind = groupKind;
+    }
+
+    return plan;
+  }
+
+  private getBatchGroupKind(
+    toolName: ToolName,
+    rawInput: Record<string, unknown>
+  ): BatchGroupKind {
+    const definition = toolByName[toolName];
+    const parsedInput = definition.inputSchema.parse(rawInput);
+
+    return definition.isConcurrencySafe?.(parsedInput)
+      ? 'parallel'
+      : 'exclusive';
   }
 
   private prepareToolExecution(input: {

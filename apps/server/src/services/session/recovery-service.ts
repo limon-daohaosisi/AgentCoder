@@ -196,6 +196,19 @@ function decideSessionRecovery(input: {
             (openCall) => openCall.id === checkpoint.toolCallId
           ) ?? null)
         : null;
+
+      if (
+        (part?.type === 'tool' && part.batch) ||
+        (toolCall && 'batch' in toolCall && toolCall.batch)
+      ) {
+        diagnostics.push(
+          `${prefix}: run=${run.id} batch_waiting_approval_not_resumable`
+        );
+        interruptedRunIds.push(run.id);
+        clearCheckpointRunIds.push(run.id);
+        continue;
+      }
+
       const validation = validateWaitingApprovalRun({
         checkpoint,
         part,

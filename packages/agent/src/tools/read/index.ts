@@ -48,6 +48,7 @@ export const readToolDefinition: ToolDefinition<
 > = {
   approval: 'never',
   description: READ_TOOL_PROMPT,
+  isConcurrencySafe: () => true,
   outputPolicy: {
     attachments: { visibleToModel: false },
     errors: { visibleToModel: 'error_text_only' },

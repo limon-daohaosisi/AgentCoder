@@ -37,6 +37,7 @@ export const globToolDefinition: ToolDefinition<
 > = {
   approval: 'never',
   description: GLOB_TOOL_PROMPT,
+  isConcurrencySafe: () => true,
   outputPolicy: {
     attachments: { visibleToModel: false },
     errors: { visibleToModel: 'error_text_only' },

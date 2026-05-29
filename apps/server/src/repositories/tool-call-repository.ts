@@ -1,6 +1,10 @@
 import { toolCalls } from '@opencode/orm';
 import type { NewToolCall, ToolCallRow } from '@opencode/orm';
-import type { ToolCallDto, ToolCallStatus } from '@opencode/shared';
+import type {
+  BatchChildRef,
+  ToolCallDto,
+  ToolCallStatus
+} from '@opencode/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { Database } from '../db/runtime.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
@@ -9,6 +13,7 @@ type CreateToolCallInput = Omit<
   NewToolCall,
   'inputJson' | 'providerMetadataJson' | 'requiresApproval'
 > & {
+  batch?: BatchChildRef;
   input: Record<string, unknown>;
   providerMetadata?: Record<string, unknown>;
   requiresApproval: boolean;
@@ -42,6 +47,7 @@ function mapNullableString(value: null | string) {
 
 function mapToolCallRow(row: ToolCallRow): ToolCallDto {
   return {
+    batch: mapNullableRecord(row.batchJson) as BatchChildRef | undefined,
     createdAt: row.createdAt,
     errorText: mapNullableString(row.errorText),
     id: row.id,
@@ -68,6 +74,7 @@ export const toolCallRepository = {
         .insert(toolCalls)
         .values({
           ...input,
+          batchJson: input.batch ? stringifyJsonValue(input.batch) : null,
           inputJson: stringifyJsonValue(input.input),
           providerMetadataJson: input.providerMetadata
             ? stringifyJsonValue(input.providerMetadata)

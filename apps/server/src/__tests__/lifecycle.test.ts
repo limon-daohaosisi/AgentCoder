@@ -436,3 +436,151 @@ test('Lifecycle passes approval payload into approved tool execution', async () 
   assert.equal(runCalled, true);
   assert.deepEqual(receivedPayload, approval.payload);
 });
+
+test('Lifecycle continues remaining batch children before returning to model loop', async () => {
+  const session = createSession();
+  const run = createRun(session.id);
+  const assistant = messageService.createMessage({
+    content: [],
+    role: 'assistant',
+    runId: run.id,
+    sessionId: session.id,
+    status: 'completed'
+  });
+  const first = partService.createToolPartWithToolCall({
+    part: {
+      batch: {
+        batchGroupIndex: 0,
+        batchGroupKind: 'exclusive',
+        batchId: 'batch-1',
+        batchIndex: 0,
+        outerModelToolCallId: 'model-batch-1',
+        outerToolName: 'batch'
+      },
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'part-batch-1',
+      messageId: assistant.id,
+      modelToolCallId: 'model-batch-1#0',
+      order: 0,
+      sessionId: session.id,
+      state: {
+        input: { command: 'pwd' },
+        status: 'pending'
+      },
+      toolCallId: 'tool-batch-1',
+      toolName: 'bash',
+      type: 'tool',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    },
+    toolCall: {
+      batch: {
+        batchGroupIndex: 0,
+        batchGroupKind: 'exclusive',
+        batchId: 'batch-1',
+        batchIndex: 0,
+        outerModelToolCallId: 'model-batch-1',
+        outerToolName: 'batch'
+      },
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'tool-batch-1',
+      input: { command: 'pwd' },
+      messageId: assistant.id,
+      messagePartId: 'part-batch-1',
+      modelToolCallId: 'model-batch-1#0',
+      requiresApproval: true,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'pending_approval',
+      taskId: null,
+      toolName: 'bash',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    }
+  });
+  partService.createToolPartWithToolCall({
+    part: {
+      batch: {
+        batchGroupIndex: 1,
+        batchGroupKind: 'parallel',
+        batchId: 'batch-1',
+        batchIndex: 1,
+        outerModelToolCallId: 'model-batch-1',
+        outerToolName: 'batch'
+      },
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'part-batch-2',
+      messageId: assistant.id,
+      modelToolCallId: 'model-batch-1#1',
+      order: 1,
+      sessionId: session.id,
+      state: {
+        input: { filePath: 'src/index.ts' },
+        status: 'pending'
+      },
+      toolCallId: 'tool-batch-2',
+      toolName: 'read',
+      type: 'tool',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    },
+    toolCall: {
+      batch: {
+        batchGroupIndex: 1,
+        batchGroupKind: 'parallel',
+        batchId: 'batch-1',
+        batchIndex: 1,
+        outerModelToolCallId: 'model-batch-1',
+        outerToolName: 'batch'
+      },
+      createdAt: '2026-04-29T14:00:00.000Z',
+      id: 'tool-batch-2',
+      input: { filePath: 'src/index.ts' },
+      messageId: assistant.id,
+      messagePartId: 'part-batch-2',
+      modelToolCallId: 'model-batch-1#1',
+      requiresApproval: false,
+      runId: run.id,
+      sessionId: session.id,
+      status: 'pending',
+      taskId: null,
+      toolName: 'read',
+      updatedAt: '2026-04-29T14:00:00.000Z'
+    }
+  });
+
+  let continueBatchCalled = false;
+  let runCalled = false;
+  const lifecycle = new Lifecycle(
+    {
+      async run() {
+        runCalled = true;
+        return { finishReason: 'stop', kind: 'completed' };
+      }
+    },
+    buildLifecycleDeps({
+      toolExecutor: {
+        async continueBatch() {
+          continueBatchCalled = true;
+          return {
+            executedPartIds: ['part-batch-2'],
+            kind: 'completed' as const
+          };
+        },
+        async executeApprovedPart() {
+          return first.part;
+        }
+      } as never
+    })
+  );
+
+  const result = await lifecycle.continueApprovalRun({
+    approvalPayload: { ok: true },
+    decision: 'approved',
+    part: first.part,
+    runId: run.id,
+    sessionId: session.id,
+    signal: createRunSignal()
+  });
+
+  assert.deepEqual(result, { reason: 'completed' });
+  assert.equal(continueBatchCalled, true);
+  assert.equal(runCalled, true);
+});
