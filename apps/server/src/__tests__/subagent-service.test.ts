@@ -128,17 +128,26 @@ test('SubagentService cancels the child run when the parent signal aborts', asyn
       sessionId: string;
       signal: AbortSignal;
     }) {
+      const finalizeCancelled = () => {
+        agentRunService.finalizeRunState({
+          errorText: 'Run cancelled by user',
+          reason: 'cancelled',
+          runId: input.runId,
+          sessionId: input.sessionId,
+          sessionStatus: 'idle'
+        });
+      };
+
+      if (input.signal.aborted) {
+        finalizeCancelled();
+        return { reason: 'cancelled' };
+      }
+
       await new Promise<void>((resolve) => {
         input.signal.addEventListener(
           'abort',
           () => {
-            agentRunService.finalizeRunState({
-              errorText: 'Run cancelled by user',
-              reason: 'cancelled',
-              runId: input.runId,
-              sessionId: input.sessionId,
-              sessionStatus: 'idle'
-            });
+            finalizeCancelled();
             resolve();
           },
           { once: true }
