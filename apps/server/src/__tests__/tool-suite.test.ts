@@ -288,6 +288,7 @@ test('agent tool launches an explore subagent through configured services', asyn
     context.services.subagentRun = async (input) => {
       assert.deepEqual(input, {
         description: 'Inspect routing logic',
+        parentSignal: undefined,
         parentSessionId: 'session-test',
         parentToolCallId: 'tool-call-test',
         prompt: 'Find the router entrypoints and summarize them.',
