@@ -6,6 +6,12 @@ import type {
   SessionPlanFileDto
 } from '@opencode/shared';
 import { MarkdownContent } from '../../components/markdown-content';
+import {
+  getToolCardHeading,
+  getToolCardMetaLine,
+  getToolCardSummaryText,
+  isExploreSubagentToolPart
+} from './message-list.helpers';
 
 type MessageListProps = {
   approvals?: ApprovalDto[];
@@ -257,7 +263,12 @@ function ToolPartCard({
   const filePath = extractToolFilePath(part);
   const isPlanFileTool =
     Boolean(planFile?.filePath) && filePath === planFile?.filePath;
-  const showCard = isDiffTool(part) || approval?.status === 'pending';
+  const showCard =
+    isDiffTool(part) ||
+    approval?.status === 'pending' ||
+    isExploreSubagentToolPart(part);
+  const summaryText = getToolCardSummaryText(part);
+  const metaLine = getToolCardMetaLine(part);
 
   return (
     <article
@@ -275,10 +286,12 @@ function ToolPartCard({
                 Tool
               </p>
               <h4 className="mt-1 text-sm font-semibold text-white">
-                {part.toolName}
+                {getToolCardHeading(part)}
               </h4>
               {filePath ? (
                 <p className="mt-1 text-xs text-white/38">{filePath}</p>
+              ) : metaLine ? (
+                <p className="mt-1 text-xs text-white/38">{metaLine}</p>
               ) : null}
             </div>
             <span
@@ -288,9 +301,9 @@ function ToolPartCard({
             </span>
           </div>
 
-          {part.state.status === 'completed' && part.state.outputText ? (
+          {part.state.status === 'completed' && summaryText ? (
             <p className="mt-3 text-sm leading-6 text-white/70">
-              {part.state.outputText}
+              {summaryText}
             </p>
           ) : null}
 

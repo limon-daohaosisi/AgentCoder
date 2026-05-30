@@ -209,6 +209,16 @@ export const toolStateRepository = {
           toolCall: existingToolCallRow
         });
 
+        if (
+          existingToolCallRow.status !== 'running' &&
+          input.toolCall.status === 'completed'
+        ) {
+          throw new ServiceError(
+            `Tool call ${input.toolCall.id} is no longer running.`,
+            409
+          );
+        }
+
         const partRow = db
           .update(messageParts)
           .set({

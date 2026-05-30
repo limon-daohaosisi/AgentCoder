@@ -1,4 +1,5 @@
 import type { AnyToolDefinition, ToolDefinition, ToolName } from './types.js';
+import { agentToolDefinition } from './agent/index.js';
 import { batchToolDefinition } from './batch/index.js';
 import { applyPatchToolDefinition } from './apply_patch/index.js';
 import { bashToolDefinition } from './bash/index.js';
@@ -16,6 +17,8 @@ import { writeToolDefinition } from './write/index.js';
 
 export { applyPatchToolDefinition } from './apply_patch/index.js';
 export { applyPatchInputSchema } from './apply_patch/index.js';
+export { agentToolDefinition } from './agent/index.js';
+export { agentInputSchema } from './agent/index.js';
 export { batchToolDefinition } from './batch/index.js';
 export { batchInputSchema, parseBatchChildToolCalls } from './batch/index.js';
 export { bashToolDefinition } from './bash/index.js';
@@ -71,6 +74,7 @@ export type {
 } from './types.js';
 
 export const toolRegistry: AnyToolDefinition[] = [
+  agentToolDefinition,
   batchToolDefinition,
   readToolDefinition,
   globToolDefinition,

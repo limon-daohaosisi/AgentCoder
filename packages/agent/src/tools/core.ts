@@ -92,6 +92,22 @@ export type ToolServices = {
     sessionId: string;
     summary?: string;
   }): Promise<Record<string, unknown>>;
+  subagentRun?(input: {
+    description: string;
+    parentRunId?: string;
+    parentSignal?: AbortSignal;
+    parentSessionId: string;
+    parentToolCallId: string;
+    prompt: string;
+    subagentType: 'explore';
+    workspaceRoot: string;
+  }): Promise<{
+    childRunId: string;
+    sessionId: string;
+    status: 'completed';
+    summaryText: string;
+    title: string;
+  }>;
   taskCreate?(input: {
     acceptanceCriteria?: string[];
     description?: string;

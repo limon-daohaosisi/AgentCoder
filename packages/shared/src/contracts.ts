@@ -4,6 +4,14 @@ export const sessionVariantSchema = z.enum(['plan', 'build']);
 
 export type SessionVariant = z.infer<typeof sessionVariantSchema>;
 
+export const sessionKindSchema = z.enum(['primary', 'subagent']);
+
+export type SessionKind = z.infer<typeof sessionKindSchema>;
+
+export const subagentTypeSchema = z.enum(['explore']);
+
+export type SubagentType = z.infer<typeof subagentTypeSchema>;
+
 export const sessionStatusSchema = z.enum([
   'planning',
   'idle',

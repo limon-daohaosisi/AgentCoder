@@ -21,6 +21,27 @@ table "sessions" {
     null = false
   }
 
+  column "kind" {
+    type    = text
+    null    = false
+    default = sql("'primary'")
+  }
+
+  column "parent_session_id" {
+    type = text
+    null = true
+  }
+
+  column "parent_tool_call_id" {
+    type = text
+    null = true
+  }
+
+  column "subagent_type" {
+    type = text
+    null = true
+  }
+
   column "default_variant" {
     type    = text
     null    = false
@@ -83,12 +104,26 @@ table "sessions" {
     on_delete   = CASCADE
   }
 
+  foreign_key "sessions_parent_session_id_fkey" {
+    columns     = [column.parent_session_id]
+    ref_columns = [column.id]
+    on_delete   = SET_NULL
+  }
+
   check "sessions_valid_status" {
     expr = "status IN ('planning', 'idle', 'executing', 'waiting_approval', 'blocked', 'completed', 'archived')"
   }
 
+  check "sessions_valid_kind" {
+    expr = "kind IN ('primary', 'subagent')"
+  }
+
   check "sessions_valid_default_variant" {
     expr = "default_variant IN ('plan', 'build')"
+  }
+
+  check "sessions_valid_subagent_type" {
+    expr = "subagent_type IS NULL OR subagent_type IN ('explore')"
   }
 
   index "idx_sessions_workspace_updated_at" {
@@ -97,5 +132,9 @@ table "sessions" {
 
   index "idx_sessions_status" {
     columns = [column.status]
+  }
+
+  index "idx_sessions_parent_session" {
+    columns = [column.parent_session_id]
   }
 }

@@ -9,8 +9,8 @@ import {
   sessionEvents,
   messages,
   messageParts,
-  workspaces,
-  approvals
+  approvals,
+  workspaces
 } from './schema.js';
 
 export const artifactsRelations = relations(artifacts, ({ one }) => ({
@@ -77,11 +77,19 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
   messageParts: many(messageParts),
   agentRuns: many(agentRuns),
   tasks: many(tasks),
+  approvals: many(approvals),
+  session: one(sessions, {
+    fields: [sessions.parentSessionId],
+    references: [sessions.id],
+    relationName: 'sessions_parentSessionId_sessions_id'
+  }),
+  sessions: many(sessions, {
+    relationName: 'sessions_parentSessionId_sessions_id'
+  }),
   workspace: one(workspaces, {
     fields: [sessions.workspaceId],
     references: [workspaces.id]
   }),
-  approvals: many(approvals),
   toolCalls: many(toolCalls)
 }));
 
@@ -167,10 +175,6 @@ export const messagePartsRelations = relations(
   })
 );
 
-export const workspacesRelations = relations(workspaces, ({ many }) => ({
-  sessions: many(sessions)
-}));
-
 export const approvalsRelations = relations(approvals, ({ one }) => ({
   toolCall: one(toolCalls, {
     fields: [approvals.toolCallId],
@@ -188,4 +192,8 @@ export const approvalsRelations = relations(approvals, ({ one }) => ({
     fields: [approvals.sessionId],
     references: [sessions.id]
   })
+}));
+
+export const workspacesRelations = relations(workspaces, ({ many }) => ({
+  sessions: many(sessions)
 }));

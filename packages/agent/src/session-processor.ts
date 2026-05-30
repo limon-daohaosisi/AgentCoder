@@ -420,10 +420,22 @@ export class SessionProcessor {
       });
 
       if (isToolErrorApprovalCheckpoint(checkpoint)) {
+        const remainingToolParts = state.toolParts.filter(
+          (part) =>
+            part.id !== approvalPart.id && part.state.status === 'pending'
+        );
+
+        if (remainingToolParts.length === 0) {
+          return {
+            finishReason,
+            kind: 'completed'
+          };
+        }
+
         return {
           assistantMessageId: state.message?.id ?? '',
           kind: 'tool_calls',
-          toolParts: []
+          toolParts: remainingToolParts
         };
       }
 
@@ -764,6 +776,14 @@ export class SessionProcessor {
         error: formatError(error),
         kind: 'failed'
       };
+    }
+
+    children = children.filter(
+      (child) => input.request.toolPolicies[child.toolName]?.enabled
+    );
+
+    if (children.length === 0) {
+      return { kind: 'ok' };
     }
 
     const batchId = event.toolCallId;

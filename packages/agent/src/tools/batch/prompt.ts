@@ -8,5 +8,5 @@ Rules:
 - Do not nest batch inside batch.
 - Do not include plan_exit in a batch.
 - Prefer read, glob, and grep together when gathering context in parallel.
-- Tools that modify files, run shell commands, or update task state may still run one-by-one inside the batch.
+- Only tools already enabled in the current runtime may be included. Disallowed child tools are ignored.
 - Keep each batch focused. If steps depend on model reasoning between tool results, do not use batch.`;

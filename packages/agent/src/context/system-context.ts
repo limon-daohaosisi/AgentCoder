@@ -1,5 +1,6 @@
 import type { MessageRuntimeMetadata, SessionDto } from '@opencode/shared';
 import { SYSTEM_PROMPT } from '../prompt.js';
+import { getBuiltinSubagentDefinition } from '../subagents/builtin.js';
 import type { ContextSystemBlock } from './schema.js';
 import { buildSessionStableSystemBlocks } from './session-stable-system-context.js';
 
@@ -95,8 +96,18 @@ export function buildRuntimeInstructionBlocks(input: {
 export function buildSystemContext(
   input: SystemContextInput
 ): ContextSystemBlock[] {
+  const subagent = getBuiltinSubagentDefinition(input.agentName);
+
   return [
     buildCoreSystemBlock(),
+    ...(subagent
+      ? [
+          {
+            source: 'subagent_rules' as const,
+            text: subagent.systemPrompt
+          }
+        ]
+      : []),
     ...buildSessionStableSystemBlocks({
       agentName: input.agentName,
       model: input.model,
