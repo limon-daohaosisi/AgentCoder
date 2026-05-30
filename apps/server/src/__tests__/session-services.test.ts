@@ -208,6 +208,37 @@ test('messageService rejects writes for missing sessions', () => {
   );
 });
 
+test('sessionService creates subagent sessions and listSessions hides them from primary session lists', () => {
+  const workspace = workspaceService.createWorkspace({
+    rootPath: environment.workspaceRoot
+  });
+  const parent = sessionService.createSession({
+    goalText: 'Parent session',
+    workspaceId: workspace.id
+  });
+  const child = sessionService.createSubagentSession({
+    goalText: 'Inspect the repo structure',
+    parentSessionId: parent.id,
+    parentToolCallId: 'tool-call-agent-1',
+    subagentType: 'explore',
+    title: 'Inspect (@explore subagent)',
+    workspaceId: workspace.id
+  });
+
+  assert.equal(child.kind, 'subagent');
+  assert.equal(child.parentSessionId, parent.id);
+  assert.equal(child.parentToolCallId, 'tool-call-agent-1');
+  assert.equal(child.subagentType, 'explore');
+
+  const visibleSessions = sessionService.listSessions(workspace.id);
+
+  assert.deepEqual(
+    visibleSessions.map((session) => session.id),
+    [parent.id]
+  );
+  assert.equal(sessionService.getSession(child.id)?.id, child.id);
+});
+
 test('sessionService persists and clears revert state', () => {
   const workspace = workspaceService.createWorkspace({
     rootPath: environment.workspaceRoot

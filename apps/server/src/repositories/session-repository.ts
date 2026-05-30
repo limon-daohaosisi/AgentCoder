@@ -3,10 +3,12 @@ import type { NewSession, SessionRow } from '@opencode/orm';
 import type {
   SessionRevertDto,
   SessionDto,
+  SessionKind,
   SessionStatus,
-  SessionVariant
+  SessionVariant,
+  SubagentType
 } from '@opencode/shared';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { Database } from '../db/runtime.js';
 import { parseJsonValue, stringifyJsonValue } from '../lib/json.js';
 
@@ -39,12 +41,18 @@ function mapSessionRow(row: SessionRow): SessionDto {
     defaultVariant: row.defaultVariant as SessionVariant,
     goalText: row.goalText,
     id: row.id,
+    kind: row.kind as SessionKind,
     lastCheckpointJson: mapNullable(row.lastCheckpointJson),
     lastErrorText: mapNullable(row.lastErrorText),
+    parentSessionId: mapNullable(row.parentSessionId),
+    parentToolCallId: mapNullable(row.parentToolCallId),
     revert: row.revertJson
       ? parseJsonValue<SessionRevertDto>(row.revertJson, {} as SessionRevertDto)
       : undefined,
     status: row.status as SessionStatus,
+    subagentType: row.subagentType
+      ? (row.subagentType as SubagentType)
+      : undefined,
     title: row.title,
     updatedAt: row.updatedAt,
     workspaceId: row.workspaceId
@@ -71,7 +79,12 @@ export const sessionRepository = {
       db
         .select()
         .from(sessions)
-        .where(eq(sessions.workspaceId, workspaceId))
+        .where(
+          and(
+            eq(sessions.workspaceId, workspaceId),
+            eq(sessions.kind, 'primary')
+          )
+        )
         .orderBy(desc(sessions.updatedAt))
         .all()
         .map(mapSessionRow)

@@ -1,12 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { loadWorkspaceEnv } from './load-env.mjs';
-import { ensureSqliteDatabaseUrlReady } from './prepare-sqlite-database.mjs';
 
 loadWorkspaceEnv();
 
-ensureSqliteDatabaseUrlReady(process.env.DATABASE_URL);
-
-const result = spawnSync('atlas', ['migrate', 'apply', '--env', 'local'], {
+const result = spawnSync('atlas', process.argv.slice(2), {
   stdio: 'inherit',
   env: process.env
 });

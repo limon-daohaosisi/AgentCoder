@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "apply": "node ./scripts/apply.mjs",
-    "diff": "atlas migrate diff",
-    "status": "atlas migrate status --env local"
+    "diff": "node ./scripts/atlas.mjs migrate diff",
+    "status": "node ./scripts/atlas.mjs migrate status --env local"
   }
 }

@@ -3,7 +3,11 @@ import test from 'node:test';
 import { resolveTools } from '@opencode/agent';
 
 function createInput(variant: 'build' | 'plan') {
-  const runtime = { format: { type: 'text' as const }, variant };
+  const runtime: {
+    format: { type: 'text' };
+    toolOverrides?: Partial<Record<string, boolean>>;
+    variant: 'build' | 'plan';
+  } = { format: { type: 'text' as const }, variant };
 
   return {
     agentName: 'default',
@@ -76,4 +80,39 @@ test('resolveTools exposes execution-only task_update schema in build mode', () 
     taskId: 'task-1'
   });
   assert.equal(structureMutation.success, false);
+});
+
+test('resolveTools restricts explore agent to read-only exploration tools', () => {
+  const input = createInput('build');
+  input.agentName = 'explore';
+  input.context.lastUser.agentName = 'explore';
+  input.lastUser.agentName = 'explore';
+
+  const tools = resolveTools(input)
+    .map((tool) => tool.name)
+    .sort();
+
+  assert.deepEqual(tools, ['batch', 'glob', 'grep', 'read']);
+});
+
+test('resolveTools only lets explore toolOverrides shrink visibility', () => {
+  const input = createInput('build');
+  input.agentName = 'explore';
+  input.context.lastUser.agentName = 'explore';
+  input.lastUser.agentName = 'explore';
+  input.context.lastUser.runtime = {
+    format: { type: 'text' },
+    toolOverrides: {
+      apply_patch: true,
+      grep: false
+    },
+    variant: 'build'
+  };
+  input.lastUser.runtime = input.context.lastUser.runtime;
+
+  const tools = resolveTools(input)
+    .map((tool) => tool.name)
+    .sort();
+
+  assert.deepEqual(tools, ['batch', 'glob', 'read']);
 });

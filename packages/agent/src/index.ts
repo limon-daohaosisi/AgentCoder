@@ -88,6 +88,8 @@ export type * from './context/schema.js';
 export {
   applyPatchInputSchema,
   applyPatchToolDefinition,
+  agentInputSchema,
+  agentToolDefinition,
   batchInputSchema,
   batchToolDefinition,
   bashInputSchema,
@@ -118,6 +120,10 @@ export {
   writeInputSchema,
   writeToolDefinition
 } from './tools/index.js';
+export {
+  builtinSubagents,
+  getBuiltinSubagentDefinition
+} from './subagents/builtin.js';
 export type {
   FileSnapshotArtifact,
   FileSnapshotStore,

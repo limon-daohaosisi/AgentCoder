@@ -68,6 +68,11 @@ type BatchExecutionGroup = {
   remainingParts: ToolPart[];
 };
 
+type StandaloneExecutionGroup = {
+  kind: 'exclusive' | 'parallel';
+  parts: ToolPart[];
+};
+
 export type ToolPreparationResult = ApprovalResult | AutoExecutionResult;
 
 export function toolRequiresApproval(toolName: ToolName) {
@@ -205,6 +210,7 @@ export async function executeApprovedTool(input: {
 export type ToolExecutorDeps = {
   appendSessionEvent(event: SessionEvent): unknown;
   getMessagePart(partId: string): MessagePart | null;
+  getToolCall?(toolCallId: string): ToolCallDto | null;
   listOpenToolPartsByRun?(runId: string): ToolPart[];
   now?: () => string;
   persist?<T>(callback: () => T): T;
@@ -275,15 +281,36 @@ export class ToolExecutor {
       batchPartsById.set(part.batch.batchId, grouped);
     }
 
-    for (const part of standaloneParts) {
-      if (part.state.status !== 'pending') {
-        continue;
-      }
+    const standaloneGroups = this.buildStandaloneExecutionPlan(standaloneParts);
 
+    for (const group of standaloneGroups) {
       const abortReason = getAbortReason(input.signal);
 
       if (abortReason) {
         return { kind: 'cancelled', reason: abortReason };
+      }
+
+      if (group.kind === 'parallel') {
+        const settled = await Promise.all(
+          group.parts.map((part) =>
+            this.executePart({
+              part,
+              runId: input.runId,
+              signal: input.signal,
+              sessionId: input.sessionId,
+              workspaceRoot: input.workspaceRoot
+            })
+          )
+        );
+
+        executedPartIds.push(...settled.map((part) => part.id));
+        continue;
+      }
+
+      const [part] = group.parts;
+
+      if (!part || part.state.status !== 'pending') {
+        continue;
       }
 
       const approvalMode = await resolveToolApprovalMode({
@@ -547,6 +574,14 @@ export class ToolExecutor {
       };
 
       this.persist(() => {
+        const currentToolCall = this.deps.getToolCall?.(input.part.toolCallId);
+
+        if (currentToolCall && currentToolCall.status !== 'running') {
+          throw new Error(
+            `Tool call ${input.part.toolCallId} is no longer running.`
+          );
+        }
+
         const { part: updatedPart, toolCall: completedToolCall } =
           this.deps.updateToolPartWithToolCall({
             part: completedPart,
@@ -871,6 +906,50 @@ export class ToolExecutor {
     }
 
     return groups;
+  }
+
+  private buildStandaloneExecutionPlan(
+    parts: ToolPart[]
+  ): StandaloneExecutionGroup[] {
+    const ordered = parts
+      .filter((part) => part.state.status === 'pending')
+      .sort((left, right) =>
+        left.order === right.order
+          ? left.id.localeCompare(right.id)
+          : left.order - right.order
+      );
+    const groups: StandaloneExecutionGroup[] = [];
+
+    for (const part of ordered) {
+      const kind = this.getStandaloneExecutionKind(part);
+      const current = groups.at(-1);
+
+      if (!current || kind !== 'parallel' || current.kind !== 'parallel') {
+        groups.push({
+          kind,
+          parts: [part]
+        });
+        continue;
+      }
+
+      current.parts.push(part);
+    }
+
+    return groups;
+  }
+
+  private getStandaloneExecutionKind(part: ToolPart): 'exclusive' | 'parallel' {
+    const definition = toolByName[part.toolName];
+
+    if (!definition) {
+      return 'exclusive';
+    }
+
+    const parsedInput = definition.inputSchema.parse(part.state.input);
+
+    return definition.isConcurrencySafe?.(parsedInput)
+      ? 'parallel'
+      : 'exclusive';
   }
 
   private failPendingBatchChildren(

@@ -21,6 +21,7 @@ export type ContextSystemBlock = {
     | 'instruction'
     | 'memory'
     | 'mode_rules'
+    | 'subagent_rules'
     | 'skill_list'
     | 'user_system';
   text: string;

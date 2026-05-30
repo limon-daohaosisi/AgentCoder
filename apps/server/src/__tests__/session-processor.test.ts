@@ -1,4 +1,5 @@
 import {
+  buildSystemContext,
   SessionProcessor,
   type AiSdkTurnRequest,
   type ModelResponseStream,
@@ -471,8 +472,10 @@ test('SessionProcessor rejects write to non-plan-file paths in plan mode', async
     })
   );
 
-  assert.equal(result.kind, 'tool_calls');
-  assert.deepEqual(result.toolParts, []);
+  assert.deepEqual(result, {
+    finishReason: 'tool-calls',
+    kind: 'completed'
+  });
 
   const [message] = messageService.listMessages(session.id);
   const toolPart = message?.content.find((part) => part.type === 'tool');
@@ -684,8 +687,10 @@ test('SessionProcessor converts approval payload generation failures into tool e
     })
   );
 
-  assert.equal(result.kind, 'tool_calls');
-  assert.deepEqual(result.toolParts, []);
+  assert.deepEqual(result, {
+    finishReason: 'tool-calls',
+    kind: 'completed'
+  });
 
   const [message] = messageService.listMessages(session.id);
   const toolPart = message?.content.find((part) => part.type === 'tool');
@@ -1028,6 +1033,192 @@ test('SessionProcessor rejects plan_exit inside batch', async () => {
   });
 });
 
+test('buildSystemContext adds explore overlay for explore agent sessions', () => {
+  const system = buildSystemContext({
+    agentName: 'explore',
+    lastUserRuntime: undefined,
+    model: { modelId: 'gpt-4.1-mini', providerId: 'openai' },
+    previousUserRuntime: undefined,
+    session: {
+      createdAt: '2026-05-29T00:00:00.000Z',
+      defaultVariant: 'build',
+      goalText: 'Inspect the codebase',
+      id: 'session-explore',
+      kind: 'subagent',
+      status: 'planning',
+      subagentType: 'explore',
+      title: 'Explore runtime',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      workspaceId: 'workspace-1'
+    },
+    workspaceRoot: environment.workspaceRoot
+  });
+
+  const systemText = system.map((block) => block.text).join('\n\n');
+
+  assert.match(systemText, /You are the Explore subagent/i);
+  assert.match(systemText, /read-only code exploration specialist/i);
+  assert.match(systemText, /Forbidden actions:/i);
+  assert.match(systemText, /do not call other agents/i);
+});
+
+test('SessionProcessor silently drops disallowed batch children for explore agent', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                tool_calls: [
+                  { parameters: { filePath: 'src/index.ts' }, tool: 'read' },
+                  {
+                    parameters: {
+                      filePath: 'src/index.ts',
+                      oldString: 'a',
+                      newString: 'b'
+                    },
+                    tool: 'edit'
+                  },
+                  { parameters: { pattern: 'ok', path: 'src' }, tool: 'grep' }
+                ]
+              },
+              toolCallId: 'model-call-batch-explore',
+              toolName: 'batch',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-batch-explore',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          batch: {
+            approval: 'never',
+            enabled: true,
+            name: 'batch',
+            source: 'builtin'
+          },
+          grep: {
+            approval: 'never',
+            enabled: true,
+            name: 'grep',
+            source: 'builtin'
+          },
+          read: {
+            approval: 'never',
+            enabled: true,
+            name: 'read',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+  assert.deepEqual(
+    result.toolParts.map((part) => part.toolName),
+    ['read', 'grep']
+  );
+  assert.equal(
+    result.toolParts.some((part) => part.toolName === 'edit'),
+    false
+  );
+});
+
+test('SessionProcessor treats fully filtered explore batch as an empty no-op', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                tool_calls: [
+                  {
+                    parameters: {
+                      filePath: 'src/index.ts',
+                      oldString: 'a',
+                      newString: 'b'
+                    },
+                    tool: 'edit'
+                  }
+                ]
+              },
+              toolCallId: 'model-call-batch-empty',
+              toolName: 'batch',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-batch-empty',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          batch: {
+            approval: 'never',
+            enabled: true,
+            name: 'batch',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.deepEqual(result, {
+    finishReason: 'tool-calls',
+    kind: 'completed'
+  });
+});
+
 test('SessionProcessor keeps approval-required batch children pending until execution', async () => {
   const session = createSession();
   const run = agentRunService.createRun({ sessionId: session.id });
@@ -1119,4 +1310,104 @@ test('SessionProcessor keeps approval-required batch children pending until exec
   assert.equal(editPart?.batch?.batchGroupKind, 'exclusive');
   assert.equal(readPart?.batch?.batchGroupIndex, 1);
   assert.equal(readToolCall?.status, 'pending');
+});
+
+test('SessionProcessor groups sibling agent subagent launches as parallel batch work', async () => {
+  const session = createSession();
+  const run = agentRunService.createRun({ sessionId: session.id });
+  const processor = new SessionProcessor(
+    buildSessionProcessorDeps({
+      streamModelResponse: (() =>
+        createFakeStream({
+          events: [
+            {
+              input: {
+                tool_calls: [
+                  {
+                    parameters: {
+                      description: 'Inspect routes',
+                      prompt: 'Find router entrypoints.',
+                      subagentType: 'explore'
+                    },
+                    tool: 'agent'
+                  },
+                  {
+                    parameters: {
+                      description: 'Inspect auth',
+                      prompt: 'Find auth entrypoints.',
+                      subagentType: 'explore'
+                    },
+                    tool: 'agent'
+                  }
+                ]
+              },
+              toolCallId: 'model-call-batch-agents',
+              toolName: 'batch',
+              type: 'tool-call'
+            },
+            {
+              finishReason: 'tool-calls',
+              response: {
+                id: 'resp-batch-agents',
+                modelId: 'gpt-test',
+                timestamp: new Date('2026-04-27T00:00:00.000Z')
+              },
+              type: 'finish-step',
+              usage: {
+                inputTokenDetails: {},
+                inputTokens: 1,
+                outputTokenDetails: {},
+                outputTokens: 1,
+                totalTokens: 2
+              }
+            }
+          ]
+        })) as StreamModelResponse
+    })
+  );
+
+  const result = await processor.processTurn(
+    createProcessTurnInput({
+      request: createRequest({
+        toolPolicies: {
+          agent: {
+            approval: 'never',
+            enabled: true,
+            name: 'agent',
+            source: 'builtin'
+          },
+          batch: {
+            approval: 'never',
+            enabled: true,
+            name: 'batch',
+            source: 'builtin'
+          }
+        }
+      }),
+      runId: run.id,
+      sessionId: session.id
+    })
+  );
+
+  assert.equal(result.kind, 'tool_calls');
+  assert.equal(result.toolParts.length, 2);
+  assert.deepEqual(
+    result.toolParts.map((part) => ({
+      batchGroupIndex: part.batch?.batchGroupIndex,
+      batchGroupKind: part.batch?.batchGroupKind,
+      toolName: part.toolName
+    })),
+    [
+      {
+        batchGroupIndex: 0,
+        batchGroupKind: 'parallel',
+        toolName: 'agent'
+      },
+      {
+        batchGroupIndex: 0,
+        batchGroupKind: 'parallel',
+        toolName: 'agent'
+      }
+    ]
+  );
 });

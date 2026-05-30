@@ -1,4 +1,4 @@
-h1:QGbMB45w3ILOgMV3I5ED76YSa6HqfeVGL0OmkgCOqf4=
+h1:x4+9F6F0QHAlULkjcytMb8EoyvzLU6voIaEEcCHdIoM=
 20260330144844_init_schema.sql h1:JlV6XwjA4iUC+MwPbgyn/qq/BT4zw1mUz5ytD8oN32k=
 20260428054903_context_skeleton_message_parts.sql h1:x3/LqWRovPzKh2L9PDBrJNkgDMdusqkN2ZwktMVi/XE=
 20260429101627_agent_runs_and_cancellation.sql h1:d4loRlJGgaXX4CGVT20G2A0r98ADyhB6Z2sQF600Imw=
@@ -8,3 +8,4 @@ h1:QGbMB45w3ILOgMV3I5ED76YSa6HqfeVGL0OmkgCOqf4=
 20260514065552_add_plan_exit_approval_kind.sql h1:viXlGLIwMb/PteYQwnM/r8PmvLl73RJwQlo/xZOX+BA=
 20260520080616_add_session_revert_state.sql h1:lxJN35z4svwx9ZC5o2fiQIAvRRDS1L5wtHTa+rVrpsU=
 20260529063017_add_batch_tool_call_support.sql h1:DTTC7TH+olXjGY0+yhnwEWmhnqit/CtI3lD3wXIMoU0=
+20260529163015_add_subagent_sessions_and_agent_tool.sql h1:eNANTmehPMeqqwGaScKddDrB2x7OdDsJ5Brm2Q7G/Ck=

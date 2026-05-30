@@ -24,12 +24,14 @@ import type {
   MessageDto,
   MessagePart,
   MessageRuntimeMetadata,
+  SessionKind,
   MessageStatus,
   SessionRevertDto,
   SessionDto,
   SessionEvent,
   SessionEventEnvelope,
   SessionStatus,
+  SubagentType,
   TokenUsageDto,
   ToolCallDto,
   ToolCallStatus
@@ -141,12 +143,18 @@ function mapSessionRow(row: SessionRow): SessionDto {
     defaultVariant: row.defaultVariant as SessionDto['defaultVariant'],
     goalText: row.goalText,
     id: row.id,
+    kind: row.kind as SessionKind,
     lastCheckpointJson: mapNullableString(row.lastCheckpointJson),
     lastErrorText: mapNullableString(row.lastErrorText),
+    parentSessionId: mapNullableString(row.parentSessionId),
+    parentToolCallId: mapNullableString(row.parentToolCallId),
     revert: row.revertJson
       ? parseJsonValue<SessionRevertDto>(row.revertJson, {} as SessionRevertDto)
       : undefined,
     status: row.status as SessionStatus,
+    subagentType: row.subagentType
+      ? (row.subagentType as SubagentType)
+      : undefined,
     title: row.title,
     updatedAt: row.updatedAt,
     workspaceId: row.workspaceId

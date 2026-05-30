@@ -1,7 +1,9 @@
 import type {
   AgentRunStatus,
+  SessionKind,
   SessionStatus,
-  SessionVariant
+  SessionVariant,
+  SubagentType
 } from './contracts.js';
 
 export type ToolCallStatus =
@@ -24,6 +26,7 @@ export type TaskStatus =
   | 'failed';
 
 export type ToolName =
+  | 'agent'
   | 'batch'
   | 'apply_patch'
   | 'bash'
@@ -381,10 +384,14 @@ export type SessionDto = {
   defaultVariant: SessionVariant;
   goalText: string;
   id: string;
+  kind: SessionKind;
   lastErrorText?: string;
   lastCheckpointJson?: string;
+  parentSessionId?: string;
+  parentToolCallId?: string;
   revert?: SessionRevertDto;
   status: SessionStatus;
+  subagentType?: SubagentType;
   title: string;
   updatedAt: string;
   workspaceId: string;

@@ -27,8 +27,13 @@ import { fileSnapshotService } from '../services/agent/file-snapshot-service.js'
 import { nestedAgentsMemoryService } from '../services/agent/nested-agents-memory-service.js';
 import { promptSourceService } from '../services/agent/prompt-source-service.js';
 import { runtimeContextMessageService } from '../services/agent/runtime-context-message-service.js';
+import { sessionRunner } from '../services/agent/runner.js';
+import { SubagentService } from '../services/agent/subagent-service.js';
 import { toolStateService } from '../services/agent/tool-state-service.js';
 import { planService } from '../services/session/plan-service.js';
+import { toolCallRepository } from '../repositories/tool-call-repository.js';
+
+let subagentService: SubagentService | null = null;
 
 function buildToolServices() {
   return {
@@ -94,6 +99,22 @@ function buildToolServices() {
       sessionId: string;
       summary?: string;
     }) => planService.buildPlanExitApprovalPayload(input),
+    subagentRun: (input: {
+      description: string;
+      parentRunId?: string;
+      parentSignal?: AbortSignal;
+      parentSessionId: string;
+      parentToolCallId: string;
+      prompt: string;
+      subagentType: 'explore';
+      workspaceRoot: string;
+    }) => {
+      if (!subagentService) {
+        throw new Error('subagent service is not configured.');
+      }
+
+      return subagentService.runSubagent(input);
+    },
     getSessionTaskContext: (taskContextInput: { sessionId: string }) =>
       Promise.resolve(
         taskService.getCurrentTaskContext(taskContextInput.sessionId)
@@ -157,6 +178,7 @@ export const sessionProcessor = new SessionProcessor(
 export const toolExecutor = new ToolExecutor({
   appendSessionEvent: (event) => sessionEventService.append(event),
   getMessagePart: (partId) => messagePartService.getPart(partId),
+  getToolCall: (toolCallId) => toolCallRepository.getById(toolCallId),
   listOpenToolPartsByRun: (runId) =>
     toolStateService.listOpenToolPartsByRun(runId),
   persist: (callback) => Database.transaction(callback),
@@ -304,3 +326,4 @@ export const runLoop = new RunLoop(
   buildSessionCompactionDeps()
 );
 export const lifecycle = new Lifecycle(runLoop, buildLifecycleDeps());
+subagentService = new SubagentService(sessionRunner, lifecycle);

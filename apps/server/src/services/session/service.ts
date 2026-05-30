@@ -2,7 +2,8 @@ import type {
   CreateSessionInput,
   SessionRevertDto,
   SessionCheckpoint,
-  SessionDto
+  SessionDto,
+  SubagentType
 } from '@opencode/shared';
 import type { SessionStatus } from '@opencode/shared';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +20,17 @@ type UpdateSessionRuntimeStateInput = {
   lastErrorText?: null | string;
   sessionId: string;
   status?: SessionStatus;
+};
+
+type CreateSubagentSessionInput = {
+  defaultVariant?: SessionDto['defaultVariant'];
+  goalText: string;
+  id?: string;
+  parentSessionId: string;
+  parentToolCallId: string;
+  subagentType: SubagentType;
+  title?: string;
+  workspaceId: string;
 };
 
 function buildSessionTitle(goalText: string, title?: string): string {
@@ -77,6 +89,31 @@ export const sessionService = {
       workspaceId: input.workspaceId
     });
     return session;
+  },
+
+  createSubagentSession(input: CreateSubagentSessionInput): SessionDto {
+    const workspace = workspaceRepository.getById(input.workspaceId);
+
+    if (!workspace) {
+      throw new ServiceError(`Workspace not found: ${input.workspaceId}`, 404);
+    }
+
+    const now = new Date().toISOString();
+
+    return sessionRepository.create({
+      createdAt: now,
+      defaultVariant: input.defaultVariant ?? 'build',
+      goalText: input.goalText.trim(),
+      id: input.id ?? randomUUID(),
+      kind: 'subagent',
+      parentSessionId: input.parentSessionId,
+      parentToolCallId: input.parentToolCallId,
+      status: 'planning',
+      subagentType: input.subagentType,
+      title: buildSessionTitle(input.goalText, input.title),
+      updatedAt: now,
+      workspaceId: input.workspaceId
+    });
   },
 
   getSession(sessionId: string) {

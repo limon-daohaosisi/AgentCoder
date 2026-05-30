@@ -13,6 +13,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import {
   applyPatchToolDefinition,
+  agentToolDefinition,
   bashToolDefinition,
   editToolDefinition,
   globToolDefinition,
@@ -272,6 +273,67 @@ test('glob rejects invalid glob patterns instead of returning empty results', as
       }),
       /ripgrep glob failed|regex parse error|unclosed character class|[Mm]issing closing/u
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('agent tool launches an explore subagent through configured services', async () => {
+  const fixture = createWorkspaceFixture('opencode-agent-tool');
+
+  try {
+    const { context } = createToolContext({
+      workspaceRoot: fixture.workspaceRoot
+    });
+    context.services.subagentRun = async (input) => {
+      assert.deepEqual(input, {
+        description: 'Inspect routing logic',
+        parentSessionId: 'session-test',
+        parentToolCallId: 'tool-call-test',
+        prompt: 'Find the router entrypoints and summarize them.',
+        subagentType: 'explore',
+        workspaceRoot: fixture.workspaceRoot
+      });
+
+      return {
+        childRunId: 'run-child-1',
+        sessionId: 'session-child-1',
+        status: 'completed',
+        summaryText: 'Router starts in apps/web/src/router.tsx.',
+        title: 'Inspect routing logic (@explore subagent)'
+      };
+    };
+
+    const output = await agentToolDefinition.execute({
+      context,
+      input: {
+        description: 'Inspect routing logic',
+        prompt: 'Find the router entrypoints and summarize them.',
+        subagentType: 'explore'
+      }
+    });
+    const presentation = agentToolDefinition.present({
+      context,
+      input: {
+        description: 'Inspect routing logic',
+        prompt: 'Find the router entrypoints and summarize them.',
+        subagentType: 'explore'
+      },
+      output
+    });
+
+    assert.equal(output.ok, true);
+    assert.equal(output.subagentSessionId, 'session-child-1');
+    assert.equal(output.childRunId, 'run-child-1');
+    assert.match(
+      presentation.outputText,
+      /subagent_session_id: session-child-1/
+    );
+    assert.match(
+      presentation.outputText,
+      /Router starts in apps\/web\/src\/router\.tsx\./
+    );
+    assert.equal(presentation.metadata?.subagentType, 'explore');
   } finally {
     fixture.cleanup();
   }

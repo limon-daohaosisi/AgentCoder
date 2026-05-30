@@ -1,6 +1,12 @@
-import { serve } from '@hono/node-server';
-import { app } from './app.js';
-import { sessionRecoveryService } from './services/session/recovery-service.js';
+import { loadWorkspaceEnv } from './load-env.js';
+
+loadWorkspaceEnv();
+
+const [{ serve }, { app }, { sessionRecoveryService }] = await Promise.all([
+  import('@hono/node-server'),
+  import('./app.js'),
+  import('./services/session/recovery-service.js')
+]);
 
 const port = Number(process.env.PORT ?? 3001);
 

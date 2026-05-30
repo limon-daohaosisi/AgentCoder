@@ -132,7 +132,7 @@ table "tool_calls" {
   }
 
   check "tool_calls_valid_tool_name" {
-    expr = "tool_name IN ('batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit')"
+    expr = "tool_name IN ('agent', 'batch', 'read', 'glob', 'grep', 'task_create', 'task_list', 'task_get', 'task_update', 'task_stop', 'apply_patch', 'bash', 'write', 'edit', 'plan_exit')"
   }
 
   check "tool_calls_valid_status" {
